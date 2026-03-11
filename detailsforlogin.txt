@@ -1,0 +1,25 @@
+ujjwal3rd@gmail.com 
+ujjwal123
+
+
+ut8982@srmist.edu.in
+ujjwalujjwal
+
+make password by using the app
+otherwise go to db 
+first run this py file present in backend folder 
+from werkzeug.security import generate_password_hash
+
+print(generate_password_hash("ujjwal123"))  your new password goes here
+copy the generate_password_hash and use this sql code for updating
+
+
+delete from teachers;
+ALTER SEQUENCE teachers_id_seq RESTART WITH 1;
+INSERT INTO teachers (name, email, password_hash, is_admin)
+VALUES (
+'Ujjwal',
+'ujjwal3rd@gmail.com',
+'scrypt:32768:8:1$ABXMAoEPsgRCi25s$eaccf06b115649456d9d8456dfb6d99b615f9da2533af2235c9526f2a7595767912338b6fabcfc7f103de61878d93b616aba40f289b2ce89b8a81b9e2f338128',
+true
+);

@@ -378,6 +378,11 @@ function App() {
     const [isProcessingPdf, setIsProcessingPdf] = useState(false);
     const [isFetchingDetails, setIsFetchingDetails] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    // manual entry fields for new feature
+    const [manualRegNo, setManualRegNo] = useState('');
+    const [manualName, setManualName] = useState('');
+    const [manualStudentEmail, setManualStudentEmail] = useState('');
+    const [manualParentEmail, setManualParentEmail] = useState('');
 
     // Templates state
     const [templates, setTemplates] = useState([]);
@@ -462,32 +467,79 @@ function App() {
     const handleFileChange = (e) => { const f = e.target.files[0]; setFile(f); processPdf(f); };
     const handleListAll = async () => {
         if (!intermediateCsv) return;
-        setIsFetchingDetails(true); setDisplayData([]); setSnackbar({ open: false, message: '' });
+        setIsFetchingDetails(true);
+        setSnackbar({ open: false, message: '' });
         try {
-    
             if(templates.length === 0) await fetchTemplates(); 
             const result = await api.fetchStudentDetails(intermediateCsv); 
-            setDisplayData(result);
-            if(result.length === 0) setSnackbar({ open: true, message: 'No student details found.', severity: 'warning' });
+            if(result.length === 0) {
+                setSnackbar({ open: true, message: 'No student details found.', severity: 'warning' });
+            }
+            setDisplayData(prev => {
+                const combined = [...prev, ...result];
+                const seen = new Set();
+                return combined.filter(item => {
+                    if (!item || !item.reg_no) return true;
+                    if (seen.has(item.reg_no)) return false;
+                    seen.add(item.reg_no);
+                    return true;
+                });
+            });
         } catch (err) { setSnackbar({ open: true, message: `Fetch Error: ${err.message}`, severity: 'error' }); } 
         finally { setIsFetchingDetails(false); }
     };
     const handleListLow = async () => {
        
         if (!intermediateCsv) return;
-        setIsFetchingDetails(true); setDisplayData([]); setSnackbar({ open: false, message: '' });
+        setIsFetchingDetails(true);
+        setSnackbar({ open: false, message: '' });
         try {
             const sortResult = await api.sortAttendance(intermediateCsv);
             if (!sortResult.sorted_csv_data || sortResult.sorted_csv_data.trim() === 'Reg.No,Subject,Percentage') {
-                 setSnackbar({ open: true, message: 'No students <75%.', severity: 'info' }); setDisplayData([]); setIsFetchingDetails(false); return;
+                 setSnackbar({ open: true, message: 'No students <75%.', severity: 'info' }); setIsFetchingDetails(false); return;
             }
            
             if(templates.length === 0) await fetchTemplates(); 
             const fetchResult = await api.fetchStudentDetails(sortResult.sorted_csv_data); 
-            setDisplayData(fetchResult);
             if(fetchResult.length === 0) setSnackbar({ open: true, message: 'Low attendance found, but no DB match.', severity: 'warning' });
+            setDisplayData(prev => {
+                const combined = [...prev, ...fetchResult];
+                const seen = new Set();
+                return combined.filter(item => {
+                    if (!item || !item.reg_no) return true;
+                    if (seen.has(item.reg_no)) return false;
+                    seen.add(item.reg_no);
+                    return true;
+                });
+            });
         } catch (err) { setSnackbar({ open: true, message: `Fetch Error: ${err.message}`, severity: 'error' }); } 
         finally { setIsFetchingDetails(false); }
+    };
+    
+    // manual entry helpers
+    const handleAddManualStudent = () => {
+        if (!manualRegNo) return;
+        const newEntry = {
+            reg_no: manualRegNo,
+            name: manualName || '',
+            student_email: manualStudentEmail || '',
+            parent_email: manualParentEmail || '',
+            subjects: []
+        };
+        setDisplayData(prev => [...prev, newEntry]);
+        // clear input fields
+        setManualRegNo('');
+        setManualName('');
+        setManualStudentEmail('');
+        setManualParentEmail('');
+    };
+
+    const handleRemoveStudentRow = (index) => {
+        setDisplayData(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleClearDisplay = () => {
+        setDisplayData([]);
     };
 
     // Alert Tab Handler
@@ -665,9 +717,52 @@ function App() {
                                 <Paper sx={{ p: 3, borderRadius: 2, display: 'flex', flexDirection: 'column' }}>
                                  
                                     <Typography variant="h5" gutterBottom>Step 3: Preview and Notify</Typography>
-                                    <textarea value={displayData.length > 0 ? JSON.stringify(displayData, null, 2) : ''} readOnly placeholder={!intermediateCsv ? "Please select a PDF first." : isFetchingDetails ? "Fetching student data..." : "Select 'List All' or 'List Low Attendance'..."} 
-                                        className="preview-box large" style={{ flexGrow: 1, minHeight: '400px', backgroundColor: isFetchingDetails ? '#333' : undefined }} />
-                                    <Button variant="contained" color="secondary" onClick={() => setIsModalOpen(true)} disabled={displayData.length === 0 || isFetchingDetails || isProcessingPdf} sx={{ mt: 2, alignSelf: 'flex-start' }}>Mail / Notify Selected Students</Button>
+
+                                    {/* manual entry form */}
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+                                        <TextField label="Reg. No" value={manualRegNo} onChange={e => setManualRegNo(e.target.value)} size="small" />
+                                        <TextField label="Name (optional)" value={manualName} onChange={e => setManualName(e.target.value)} size="small" />
+                                        <TextField label="Student Email" value={manualStudentEmail} onChange={e => setManualStudentEmail(e.target.value)} size="small" />
+                                        <TextField label="Parent Email" value={manualParentEmail} onChange={e => setManualParentEmail(e.target.value)} size="small" />
+                                        <Button variant="outlined" size="small" onClick={handleAddManualStudent} disabled={!manualRegNo}>Add Student</Button>
+                                        <Button variant="text" size="small" color="error" onClick={handleClearDisplay} disabled={displayData.length === 0}>Clear List</Button>
+                                    </Box>
+
+                                    {/* table preview */}
+                                    <TableContainer component={Paper} sx={{ maxHeight: '400px', mb: 2 }}>
+                                        <Table size="small" stickyHeader>
+                                            <TableHead>
+                                                <TableRow>
+                                                    <TableCell>Reg.No</TableCell>
+                                                    <TableCell>Name</TableCell>
+                                                    <TableCell>Student Email</TableCell>
+                                                    <TableCell>Parent Email</TableCell>
+                                                    <TableCell>Subjects</TableCell>
+                                                    <TableCell align="center">Action</TableCell>
+                                                </TableRow>
+                                            </TableHead>
+                                            <TableBody>
+                                                {(displayData.length === 0) ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={6} align="center">{!intermediateCsv && !displayData.length ? "Please select a PDF or add students manually." : isFetchingDetails ? "Fetching student data..." : "No students to display."}</TableCell>
+                                                    </TableRow>
+                                                ) : (
+                                                    displayData.map((student, idx) => (
+                                                        <TableRow key={idx}>
+                                                            <TableCell>{student.reg_no || 'N/A'}</TableCell>
+                                                            <TableCell>{student.name || 'N/A'}</TableCell>
+                                                            <TableCell>{student.student_email || 'N/A'}</TableCell>
+                                                            <TableCell>{student.parent_email || 'N/A'}</TableCell>
+                                                            <TableCell style={{whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200}}>{Array.isArray(student.subjects) && student.subjects.length > 0 ? student.subjects.map(s => s.Subject || s.course_title || '').join(', ') : '-'}</TableCell>
+                                                            <TableCell align="center"><IconButton size="small" onClick={() => handleRemoveStudentRow(idx)}><CloseIcon fontSize="small" /></IconButton></TableCell>
+                                                        </TableRow>
+                                                    ))
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </TableContainer>
+
+                                    <Button variant="contained" color="secondary" onClick={() => setIsModalOpen(true)} disabled={displayData.length === 0 || isFetchingDetails || isProcessingPdf} sx={{ mt: 0, alignSelf: 'flex-start' }}>Mail / Notify Selected Students</Button>
      
                                 </Paper>
                             </Grid>
@@ -795,7 +890,7 @@ function App() {
              </Box>
         
              {/* Workflow Email Modal */}
-             <EmailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} data={displayData} onSendAll={handleSendAllEmails} onSendSingle={handleSendSingleEmail} loading={loading} templates={templates} title="Review & Send Emails (Low Attendance)" />
+             <EmailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} data={displayData} onSendAll={handleSendAllEmails} onSendSingle={handleSendSingleEmail} loading={loading} templates={templates} title="Review & Send Emails" />
              
              
 
