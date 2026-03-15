@@ -122,6 +122,30 @@ def get_db_connection():
     else: 
         conn = psycopg2.connect(**DB_CONFIG)
     return conn
+def ensure_admin_exists():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) FROM teachers")
+        count = cursor.fetchone()[0]
+
+        if count == 0:
+            admin_password = generate_password_hash("admin123")
+
+            cursor.execute(
+                "INSERT INTO teachers (name, email, password_hash, is_admin) VALUES (%s,%s,%s,%s)",
+                ("Admin", "admin@gmail.com", admin_password, True)
+            )
+
+            conn.commit()
+            print("Default admin created: admin@gmail.com / admin123")
+
+        cursor.close()
+        conn.close()
+
+    except Exception as e:
+        print("Admin creation error:", e)
 
 # --- DB Helper for Analytics (Unchanged) ---
 def update_dashboard_analytics():
@@ -757,7 +781,6 @@ def get_teachers():
 @app.route('/api/teachers', methods=['POST'])
 @admin_required
 def create_teacher():
-   
     conn = None
     try:
         data = request.get_json()
@@ -765,24 +788,36 @@ def create_teacher():
         email = data.get('email')
         password = data.get('password')
         is_admin = data.get('is_admin', False)
+
         if not name or not email or not password:
-   
             return jsonify({'message': 'Missing data'}), 400
-        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+
+        # FIX: use Werkzeug default hash (scrypt)
+        hashed_password = generate_password_hash(password)
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO teachers (name, email, password_hash, is_admin) VALUES (%s, %s, %s, %s)",(name, email, hashed_password, is_admin))
+        cursor.execute(
+            "INSERT INTO teachers (name, email, password_hash, is_admin) VALUES (%s, %s, %s, %s)",
+            (name, email, hashed_password, is_admin)
+        )
+
         conn.commit()
-   
         cursor.close()
         conn.close()
+
         return jsonify({'message': 'Teacher created successfully'}), 201
+
     except psycopg2.errors.UniqueViolation:
-        if conn: conn.rollback(); conn.close()
+        if conn:
+            conn.rollback()
+            conn.close()
         return jsonify({'message': 'Email already exists'}), 409
+
     except Exception as e:
-        if conn: conn.rollback(); conn.close()
-    
+        if conn:
+            conn.rollback()
+            conn.close()
         return jsonify({'message': str(e)}), 500
 
 
@@ -1111,5 +1146,7 @@ def export_excel_structured():
         return jsonify({'error': f'Excel export failed: {e}'}), 500
         
 if __name__ == '__main__':
+    ensure_admin_exists()
+
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() in ('1', 'true', 'yes')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=debug_mode)
