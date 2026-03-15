@@ -835,7 +835,7 @@ function App() {
 
    
     //const handleOpenTemplateModal = (template = { id: null, name: '', body: '' }) => { setCurrentTemplate(template); setTemplateModalOpen(true); };
-   // const handleSaveTemplate = async () => { try { await api.saveTemplate(currentTemplate); setTemplateModalOpen(false); fetchTemplates(); setSnackbar({ open: true, message: 'Template saved!', severity: 'success' }); } catch (err) { setSnackbar({ open: true, message: `Save failed: ${err.message}`, severity: 'error' }); } };
+   const handleSaveTemplate = async () => { try { await api.saveTemplate(currentTemplate); setTemplateModalOpen(false); fetchTemplates(); setSnackbar({ open: true, message: 'Template saved!', severity: 'success' }); } catch (err) { setSnackbar({ open: true, message: `Save failed: ${err.message}`, severity: 'error' }); } };
    // const handleDeleteTemplate = async (id) => 
   //      { if (window.confirm('Are you sure?')) { try { await api.deleteTemplate(id); fetchTemplates(); setSnackbar({ open: true, message: 'Template deleted.', severity: 'info' }); } catch (err) { setSnackbar({ open: true, message: `Delete failed: ${err.message}`, severity: 'error' }); } } };
     
