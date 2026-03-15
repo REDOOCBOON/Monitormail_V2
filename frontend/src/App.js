@@ -5,7 +5,7 @@ import {
     AppBar, Toolbar, Modal, Fade, Backdrop, IconButton, Snackbar, Alert, Link,
     Checkbox, FormControlLabel, LinearProgress, Tabs, Tab, Select, MenuItem, FormControl, InputLabel,
     Card, CardContent, List, ListItem, ListItemText, Divider, Table, TableBody, TableCell, 
-    TableContainer, TableHead, TableRow
+    TableContainer, TableHead, TableRow, GlobalStyles
 } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
@@ -14,14 +14,50 @@ import CloseIcon from '@mui/icons-material/Close';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import PhoneIcon from '@mui/icons-material/Phone';
 import AttachmentIcon from '@mui/icons-material/Attachment';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import PeopleIcon from '@mui/icons-material/People';
+import SendIcon from '@mui/icons-material/Send';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import * as api from './api';
 import './App.css';
 
 // --- THEME & LOGIN (Unchanged) ---
 const darkTheme = createTheme({
-    palette: { mode: 'dark', primary: { main: '#7986cb' }, secondary: { main: '#ce93d8' }, background: { 
-        default: '#121212', paper: '#1e1e1e' } },
-    typography: { fontFamily: 'Inter, sans-serif' }
+    palette: {
+        mode: 'dark',
+        primary: { main: '#4dd0e1' },
+        secondary: { main: '#ffca28' },
+        background: { default: '#070b14', paper: 'rgba(255,255,255,0.06)' },
+        text: { primary: '#f1f5ff', secondary: 'rgba(255,255,255,0.75)' }
+    },
+    typography: { fontFamily: 'Inter, sans-serif' },
+    components: {
+        MuiPaper: {
+            styleOverrides: {
+                root: {
+                    backgroundColor: '#0b1220',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    boxShadow: '0 14px 30px rgba(0,0,0,0.35)'
+                }
+            }
+        },
+        MuiAppBar: {
+            styleOverrides: {
+                root: {
+                    background: '#08101d',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.15)'
+                }
+            }
+        },
+        MuiButton: {
+            styleOverrides: {
+                contained: {
+                    boxShadow: '0 8px 18px rgba(0,0,0,0.25)',
+                    textTransform: 'none'
+                }
+            }
+        }
+    }
 });
 
 const LoginScreen = ({ onLogin }) => {
@@ -39,22 +75,51 @@ const LoginScreen = ({ onLogin }) => {
         finally { setLoading(false); }
     };
     return (
-         <Container component="main" maxWidth="xs">
-             <Paper elevation={6} sx={{ mt: 8, p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRadius: 2 }}>
-             
-                <Typography component="h1" variant="h5" color="primary" sx={{ mb: 2 }}>MonitorMail</Typography>
-                 <Box component="form" onSubmit={handleLogin} sx={{ mt: 1 }}>
-                     <TextField margin="normal" required fullWidth id="email" label="Email Address" name="email" autoComplete="email" autoFocus />
-            
-                     <TextField margin="normal" required fullWidth name="password" label="Password" type="password" id="password" autoComplete="current-password" />
-                     {error && <Alert severity="error" sx={{ width: '100%', mt: 2 }}>{error}</Alert>}
-                     <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 
-                        2 }} disabled={loading}>
+         <Container component="main" maxWidth="xs" sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', py: 8 }}>
+             <Paper elevation={6} sx={{ mt: 2, p: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRadius: 3, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.16)', boxShadow: '0 20px 40px rgba(0,0,0,0.25)' }}>
+                 <Typography component="h1" variant="h4" color="primary" sx={{ mb: 1, fontWeight: 700, letterSpacing: 1 }}>
+                     MonitorMail
+                 </Typography>
+                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center', maxWidth: 300 }}>
+                     A streamlined messaging dashboard for student notifications.
+                 </Typography>
+                 <Box component="form" onSubmit={handleLogin} sx={{ mt: 1, width: '100%' }}>
+                     <TextField
+                         margin="normal"
+                         required
+                         fullWidth
+                         id="email"
+                         label="Email Address"
+                         name="email"
+                         autoComplete="email"
+                         autoFocus
+                     />
+                     <TextField
+                         margin="normal"
+                         required
+                         fullWidth
+                         name="password"
+                         label="Password"
+                         type="password"
+                         id="password"
+                         autoComplete="current-password"
+                     />
+                     {error && (
+                         <Alert severity="error" sx={{ width: '100%', mt: 2 }}>
+                             {error}
+                         </Alert>
+                     )}
+                     <Button
+                         type="submit"
+                         fullWidth
+                         variant="contained"
+                         sx={{ mt: 3, mb: 2 }}
+                         disabled={loading}
+                     >
                          {loading ? <CircularProgress size={24} /> : 'Sign In'}
                      </Button>
                  </Box>
-     
-            </Paper>
+             </Paper>
          </Container>
     );
 };
@@ -65,7 +130,7 @@ const modalBaseStyle = {
   top: '50%',
   left: '50%',
   transform: 'translate(-50%, -50%)',
-  bgcolor: 'background.paper', 
+  bgcolor: '#0b1220', 
   boxShadow: 24, 
   p: 4,
   borderRadius: 2,
@@ -81,7 +146,7 @@ const massAlertModalStyle = { ...modalBaseStyle, width: '60vw', maxWidth: 800 };
 
 
 // --- EmailModal (for Workflow) ---
-const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, templates, title }) => { 
+const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, templates, title, setDisplayData, setSnackbar }) => { 
     const [senderEmail, setSenderEmail] = useState('');
     const [senderPassword, setSenderPassword] = useState('');
     const [emailBodies, setEmailBodies] = useState({});
@@ -204,7 +269,7 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
             BackdropComponent={Backdrop}
             BackdropProps={{
                 timeout: 500,
-                sx: { backgroundColor: 'rgba(0, 0, 0, 0.7)' } 
+                sx: { backgroundColor: '#000' }
             }}
        
         >
@@ -215,7 +280,12 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
                     <Grid container spacing={2} sx={{ mb: 2 }}>
                         <Grid item xs={12} sm={4}><TextField fullWidth label="Your Gmail Address" value={senderEmail} onChange={e => setSenderEmail(e.target.value)} disabled={isSendingAll} /></Grid>
                      
-                        <Grid item xs={12} sm={4}><TextField fullWidth type="password" label="Your Google App Password" value={senderPassword} onChange={e => setSenderPassword(e.target.value)} helperText="Use a Google App Password." disabled={isSendingAll} /></Grid>
+                        <Grid item xs={12} sm={4}>
+                            <TextField fullWidth type="password" label="Your Google App Password" value={senderPassword} onChange={e => setSenderPassword(e.target.value)} helperText="Use a Google App Password." disabled={isSendingAll} />
+                            <Button size="small" sx={{ mt: 1 }} onClick={() => window.open('/gmail-app-password-guide.md', '_blank')}>
+                                How to get an App Password
+                            </Button>
+                        </Grid>
                         <Grid item xs={12} sm={4}>
                            
                             <FormControl fullWidth>
@@ -236,10 +306,109 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
                              student && student.reg_no && (
                                 <Paper key={student.reg_no} variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
    
-                                    <Typography variant="subtitle1" fontWeight="bold">{student.name || 'N/A'} ({student.reg_no})</Typography>
-                                    <Typography variant="body2" color="text.secondary">To: {student.student_email || 'N/A'} | Cc: {student.parent_email || 'N/A'}</Typography>
-                                    <TextField multiline fullWidth rows={8} value={emailBodies[student.reg_no] || ''} onChange={e => handleBodyChange(student.reg_no, e.target.value)} className="email-body-textarea" disabled={isSendingAll}/>
-                      
+                                    {student.missing ? (
+                                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1 }}>
+                                            <Typography variant="subtitle1" fontWeight="bold">Missing Student ({student.reg_no})</Typography>
+                                            <Typography variant="body2" color="text.secondary">This student was detected in the PDF but is not in the database. Fill in the details and save to add them.</Typography>
+                                            <Grid container spacing={1}>
+                                                <Grid item xs={12} sm={6}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="Name"
+                                                        value={student.name || ''}
+                                                        onChange={e => {
+                                                            const value = e.target.value;
+                                                            setDisplayData(prev => prev.map(item => item.reg_no === student.reg_no ? { ...item, name: value } : item));
+                                                        }}
+                                                    />
+                                                </Grid>
+                                                <Grid item xs={12} sm={6}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="Student Email"
+                                                        value={student.student_email || ''}
+                                                        onChange={e => {
+                                                            const value = e.target.value;
+                                                            setDisplayData(prev => prev.map(item => item.reg_no === student.reg_no ? { ...item, student_email: value } : item));
+                                                        }}
+                                                    />
+                                                </Grid>
+                                                <Grid item xs={12} sm={6}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="Parent Email"
+                                                        value={student.parent_email || ''}
+                                                        onChange={e => {
+                                                            const value = e.target.value;
+                                                            setDisplayData(prev => prev.map(item => item.reg_no === student.reg_no ? { ...item, parent_email: value } : item));
+                                                        }}
+                                                    />
+                                                </Grid>
+                                            </Grid>
+                                            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    onClick={async () => {
+                                                        try {
+                                                            const payload = {
+                                                                reg_no: student.reg_no,
+                                                                name: student.name,
+                                                                section: student.section || '',
+                                                                department: student.department || '',
+                                                                phone_number: student.phone_number || '',
+                                                                email: student.student_email,
+                                                                parent_mobile: student.parent_mobile || '',
+                                                                parent_email: student.parent_email
+                                                            };
+                                                            const res = await api.saveStudent(payload);
+                                                            setSnackbar({ open: true, message: 'Student added successfully!', severity: 'success' });
+                                                            setDisplayData(prev => prev.map(item => item.reg_no === student.reg_no ? { ...item, missing: false, id: res.id } : item));
+                                                        } catch (err) {
+                                                            setSnackbar({ open: true, message: `Save failed: ${err.message}`, severity: 'error' });
+                                                        }
+                                                    }}
+                                                    disabled={!student.name || !student.student_email}
+                                                >
+                                                    Save to DB
+                                                </Button>
+                                            </Box>
+                                        </Box>
+                                    ) : (
+                                        <Typography variant="subtitle1" fontWeight="bold">{student.name || 'N/A'} ({student.reg_no})</Typography>
+                                    )}
+
+                                    {!student.missing && (
+                                        <Grid container spacing={2} sx={{ mt: 1 }}>
+                                            <Grid item xs={12} sm={6}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Student Email"
+                                                    value={student.student_email || ''}
+                                                    onChange={e => {
+                                                        const value = e.target.value;
+                                                        setDisplayData(prev => prev.map(item => item.reg_no === student.reg_no ? { ...item, student_email: value } : item));
+                                                    }}
+                                                    disabled={isSendingAll}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} sm={6}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Parent Email"
+                                                    value={student.parent_email || ''}
+                                                    onChange={e => {
+                                                        const value = e.target.value;
+                                                        setDisplayData(prev => prev.map(item => item.reg_no === student.reg_no ? { ...item, parent_email: value } : item));
+                                                    }}
+                                                    disabled={isSendingAll}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    )}
+
+                                    <TextField multiline fullWidth rows={6} value={emailBodies[student.reg_no] || ''} onChange={e => handleBodyChange(student.reg_no, e.target.value)} className="email-body-textarea" disabled={isSendingAll}/>
+
                                     <Button variant="outlined" size="small" sx={{ mt: 1 }} disabled={!senderEmail || !senderPassword || singleSendLoading === student.reg_no || isSendingAll} onClick={() => handleSendSingle(student)}>
                                         {singleSendLoading === student.reg_no ? <CircularProgress 
                                             size={20} /> : 'Send Individually'}
@@ -320,7 +489,12 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
                     </Box>
                     <Grid container spacing={2}>
                         <Grid item xs={12} sm={6}><TextField fullWidth label="Your Gmail Address" value={senderEmail} onChange={e => setSenderEmail(e.target.value)} disabled={loading} /></Grid>
-                        <Grid item xs={12} sm={6}><TextField fullWidth type="password" label="Your Google App Password" value={senderPassword} onChange={e => setSenderPassword(e.target.value)} helperText="Use a Google App Password." disabled={loading} /></Grid>
+                        <Grid item xs={12} sm={6}>
+                            <TextField fullWidth type="password" label="Your Google App Password" value={senderPassword} onChange={e => setSenderPassword(e.target.value)} helperText="Use a Google App Password." disabled={loading} />
+                            <Button size="small" sx={{ mt: 1 }} onClick={() => window.open('/gmail-app-password-guide.md', '_blank')}>
+                                How to get an App Password
+                            </Button>
+                        </Grid>
                         <Grid item xs={12} sm={6}><TextField fullWidth label="Subject" 
                             value={subject} onChange={e => setSubject(e.target.value)} disabled={loading} /></Grid>
                         <Grid item xs={12} sm={6}>
@@ -411,6 +585,22 @@ function App() {
     const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
     const [isSendingAlert, setIsSendingAlert] = useState(false);
 
+    // Monitor tab state (Phase 1)
+    const [monitors, setMonitors] = useState([]);
+    const [monitorLoading, setMonitorLoading] = useState(false);
+    const [monitorMatches, setMonitorMatches] = useState([]);
+    const [selectedMonitorId, setSelectedMonitorId] = useState(null);
+    const [newMonitor, setNewMonitor] = useState({
+        name: 'My Monitor',
+        imap_host: 'imap.gmail.com',
+        imap_port: 993,
+        username: '',
+        password: '',
+        folder: 'INBOX',
+        subject_contains: '',
+        interval_seconds: 60
+    });
+    const [isCreatingMonitor, setIsCreatingMonitor] = useState(false);
 
     // --- DATA FETCHING ---
     const fetchAnalytics = 
@@ -433,6 +623,28 @@ function App() {
         }
     }, [managementSearch]); 
 
+    const fetchMonitors = useCallback(async () => {
+        setMonitorLoading(true);
+        try {
+            const data = await api.listMonitors();
+            setMonitors(data);
+        } catch (err) {
+            setSnackbar({ open: true, message: `Failed to fetch monitors: ${err.message}`, severity: 'error' });
+        } finally {
+            setMonitorLoading(false);
+        }
+    }, []);
+
+    const fetchMonitorMatches = useCallback(async (monitorId) => {
+        if (!monitorId) return;
+        try {
+            const data = await api.getMonitorMatches(monitorId);
+            setMonitorMatches(data);
+        } catch (err) {
+            setSnackbar({ open: true, message: `Failed to fetch matches: ${err.message}`, severity: 'error' });
+        }
+    }, []);
+
     useEffect(() => {
         if (token) {
             if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTemplates(); 
@@ -441,15 +653,70 @@ function App() {
             if (view === 'history') fetchHistory();
             if (view === 'teachers') fetchTeachers();
             if (view === 'students') fetchStudents(managementSearch);
+            if (view === 'monitor') fetchMonitors();
         }
     }, [view, token, fetchAnalytics, fetchTemplates, fetchHistory, fetchTeachers, fetchStudents, 
-        managementSearch]); 
+        managementSearch, fetchMonitors]); 
+
+    useEffect(() => {
+        if (selectedMonitorId) {
+            fetchMonitorMatches(selectedMonitorId);
+        } else {
+            setMonitorMatches([]);
+        }
+    }, [selectedMonitorId, fetchMonitorMatches]);
 
     // --- HANDLERS ---
     const handleLogin = (user, receivedToken) => { localStorage.setItem('token', receivedToken); localStorage.setItem('user', JSON.stringify(user)); setToken(receivedToken); setUser(user); };
     const handleLogout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); setToken(null); setUser(null); setView('dashboard'); };
     const handleViewChange = (event, newValue) => { setView(newValue); };
-    
+
+    // Monitor handlers
+    const handleMonitorFieldChange = (e) => {
+        const { name, value } = e.target;
+        setNewMonitor(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleCreateMonitor = async () => {
+        setIsCreatingMonitor(true);
+        try {
+            const created = await api.createMonitor(newMonitor);
+            setSnackbar({ open: true, message: 'Monitor created successfully.', severity: 'success' });
+            setNewMonitor({
+                name: 'My Monitor',
+                imap_host: 'imap.gmail.com',
+                imap_port: 993,
+                username: '',
+                password: '',
+                folder: 'INBOX',
+                subject_contains: '',
+                interval_seconds: 60
+            });
+            await fetchMonitors();
+            setSelectedMonitorId(created.id);
+        } catch (err) {
+            setSnackbar({ open: true, message: `Failed to create monitor: ${err.message}`, severity: 'error' });
+        } finally {
+            setIsCreatingMonitor(false);
+        }
+    };
+
+    const handleDeleteMonitor = async (id) => {
+        if (!window.confirm('Delete this monitor?')) return;
+        try {
+            await api.deleteMonitor(id);
+            setSnackbar({ open: true, message: 'Monitor deleted.', severity: 'info' });
+            if (selectedMonitorId === id) setSelectedMonitorId(null);
+            await fetchMonitors();
+        } catch (err) {
+            setSnackbar({ open: true, message: `Delete failed: ${err.message}`, severity: 'error' });
+        }
+    };
+
+    const handleSelectMonitor = (id) => {
+        setSelectedMonitorId(id);
+    };
+
     // Workflow handlers
     const processPdf = useCallback(async (selectedFile) => {
         if (!selectedFile) return;
@@ -625,8 +892,19 @@ function App() {
     return (
         <ThemeProvider theme={darkTheme}>
              <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-              
-                <CssBaseline />
+                 <CssBaseline />
+                 <GlobalStyles styles={{
+                     body: {
+                         background: 'linear-gradient(135deg, #0d1b2a 0%, #07141f 55%, #0b223a 100%)',
+                         minHeight: '100vh',
+                         backgroundAttachment: 'fixed'
+                     },
+                     '::-webkit-scrollbar': { width: 10 },
+                     '::-webkit-scrollbar-thumb': {
+                         background: 'rgba(255,255,255,0.12)',
+                         borderRadius: 10
+                     }
+                 }} />
                  {/* AppBar */}
                  <AppBar position="static" color="default" elevation={1}>
                      <Toolbar>
@@ -642,36 +920,129 @@ function App() {
                 {/* Main Content */}
                  <Container component="main" sx={{ py: 4, flexGrow: 1 }}>
                      {/* Tabs */}
-                    <Box sx={{ borderBottom: 1, borderColor: 'divider', 
-                        mb: 3 }}>
-                        <Tabs value={view} onChange={handleViewChange} variant="scrollable" scrollButtons="auto">
-                            <Tab label="Dashboard" value="dashboard" />
-                
-                            <Tab label="Low Attendance" value="workflow" />
-                            
-                            <Tab label="Alert/Notify" value="alert" />
-                            <Tab label="Email Templates" value="templates" />
-                            <Tab label="Communication History" value="history" />
-          
-                            {user.is_admin && <Tab label="Teacher Management" value="teachers" />}
-                            <Tab label="Student Management" value="students" />
-                     
+                    <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3, borderRadius: 2, background: 'rgba(255,255,255,0.04)', px: 1, py: 1 }}>
+                        <Tabs
+                            value={view}
+                            onChange={handleViewChange}
+                            variant="scrollable"
+                            scrollButtons="auto"
+                            textColor="primary"
+                            indicatorColor="primary"
+                            sx={{
+                                '& .MuiTabs-indicator': {
+                                    height: 4,
+                                    borderRadius: 2
+                                }
+                            }}
+                        >
+                            <Tab label="Dashboard" value="dashboard" sx={{ textTransform: 'none' }} />
+                            <Tab label="Low Attendance" value="workflow" sx={{ textTransform: 'none' }} />
+                            <Tab label="Alert/Notify" value="alert" sx={{ textTransform: 'none' }} />
+                            <Tab label="Mail Monitor" value="monitor" sx={{ textTransform: 'none' }} />
+                            {user.is_admin && <Tab label="Teacher Management" value="teachers" sx={{ textTransform: 'none' }} />}
+                            <Tab label="Student Management" value="students" sx={{ textTransform: 'none' }} />
                         </Tabs>
                     </Box>
 
                      {/* Views */}
-                     {view === 'dashboard' && ( analytics ? ( 
-  
-                        <Grid container spacing={3}>
-                            <Grid item xs={12} md={4}><Card><CardContent><Typography variant="h6">Emails Sent Today</Typography><Typography variant="h3">{analytics.emails_sent_today}</Typography></CardContent></Card></Grid>
-                  
-                            <Grid item xs={12} md={4}><Card><CardContent><Typography variant="h6">Unique Students Contacted Today</Typography><Typography variant="h3">{analytics.unique_students_contacted}</Typography></CardContent></Card></Grid>
-                            <Grid item xs={12} md={4}><Card><CardContent><Typography variant="h6">Most Frequent Subject (Overall)</Typography><Typography variant="h4" sx={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{analytics.most_frequent_subject}</Typography></CardContent></Card></Grid>
-               
-                            <Grid item xs={12}><Paper sx={{p: 2}}><Typography variant="h6">Top 5 Students by Emails Received</Typography><List>{analytics.top_students.map((s, i) => (<React.Fragment key={s.reg_no}><ListItem><ListItemText primary={`${s.name} (${s.reg_no})`} secondary={`Total Emails: ${s.count}`} /></ListItem>{i < analytics.top_students.length - 1 && <Divider />}</React.Fragment>))}</List></Paper></Grid>
-                        </Grid> 
-            
-                        ) : <CircularProgress />)}
+                     {view === 'dashboard' && (
+                        analytics ? (
+                            <>
+                                <Paper sx={{ p: 3, mb: 3, borderRadius: 3, background: 'rgba(255,255,255,0.06)', boxShadow: '0 16px 40px rgba(0,0,0,0.35)' }}>
+                                    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
+                                        <Box>
+                                            <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
+                                                Welcome back, {user?.name || user?.email || 'User'}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">\
+                                                Here are your latest stats. Use the tabs above to jump to any section.
+                                            </Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                            <Button variant="contained" size="small" onClick={() => setView('workflow')}>
+                                                <SendIcon sx={{ mr: 1 }} /> Send Notifications
+                                            </Button>
+                                            <Button variant="outlined" size="small" onClick={() => setView('students')}>
+                                                <PeopleIcon sx={{ mr: 1 }} /> Manage Students
+                                            </Button>
+                                        </Box>
+                                    </Box>
+                                </Paper>
+
+                                <Grid container spacing={3}>
+                                    <Grid item xs={12} md={4}>
+                                        <Card sx={{ borderRadius: 3, background: 'rgba(255,255,255,0.04)' }}>
+                                            <CardContent>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <Box>
+                                                        <Typography variant="subtitle2" color="text.secondary">Emails Sent Today</Typography>
+                                                        <Typography variant="h3" sx={{ fontWeight: 700 }}>{analytics.emails_sent_today}</Typography>
+                                                    </Box>
+                                                    <Box sx={{ width: 44, height: 44, bgcolor: 'rgba(77, 208, 225, 0.18)', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <SendIcon sx={{ color: 'primary.main' }} />
+                                                    </Box>
+                                                </Box>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+
+                                    <Grid item xs={12} md={4}>
+                                        <Card sx={{ borderRadius: 3, background: 'rgba(255,255,255,0.04)' }}>
+                                            <CardContent>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <Box>
+                                                        <Typography variant="subtitle2" color="text.secondary">Unique Students Contacted</Typography>
+                                                        <Typography variant="h3" sx={{ fontWeight: 700 }}>{analytics.unique_students_contacted}</Typography>
+                                                    </Box>
+                                                    <Box sx={{ width: 44, height: 44, bgcolor: 'rgba(255, 202, 40, 0.18)', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <PeopleIcon sx={{ color: 'secondary.main' }} />
+                                                    </Box>
+                                                </Box>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+
+                                    <Grid item xs={12} md={4}>
+                                        <Card sx={{ borderRadius: 3, background: 'rgba(255,255,255,0.04)' }}>
+                                            <CardContent>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <Box>
+                                                        <Typography variant="subtitle2" color="text.secondary">Most Frequent Subject</Typography>
+                                                        <Typography variant="h4" sx={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', fontWeight: 700 }}>{analytics.most_frequent_subject}</Typography>
+                                                    </Box>
+                                                    <Box sx={{ width: 44, height: 44, bgcolor: 'rgba(33, 150, 243, 0.18)', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <BarChartIcon sx={{ color: 'info.main' }} />
+                                                    </Box>
+                                                </Box>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+
+                                    <Grid item xs={12}>
+                                        <Paper sx={{ p: 2, borderRadius: 3, background: 'rgba(255,255,255,0.04)' }}>
+                                            <Typography variant="h6" sx={{ mb: 1 }}>Top 5 Students by Emails Received</Typography>
+                                            <List>
+                                                {analytics.top_students.map((s, i) => (
+                                                    <React.Fragment key={s.reg_no}>
+                                                        <ListItem sx={{ px: 0 }}>
+                                                            <ListItemText
+                                                                primary={<Typography sx={{ fontWeight: 700 }}>{s.name} <Typography component="span" sx={{ color: 'text.secondary', fontWeight: 500 }}>({s.reg_no})</Typography></Typography>}
+                                                                secondary={`Total Emails: ${s.count}`}
+                                                            />
+                                                            <TrendingUpIcon sx={{ color: 'success.main', ml: 2 }} />
+                                                        </ListItem>
+                                                        {i < analytics.top_students.length - 1 && <Divider />}
+                                                    </React.Fragment>
+                                                ))}
+                                            </List>
+                                        </Paper>
+                                    </Grid>
+                                </Grid>
+                            </>
+                        ) : (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', py: 12 }}><CircularProgress /></Box>
+                        )
+                    )}
 
                      {view === 'workflow' && ( 
                         <Grid container spacing={3}>
@@ -795,40 +1166,96 @@ function App() {
                         </Paper> 
                      )}
 
-                     {view === 'templates' && ( 
-        
+                     {view === 'monitor' && (
                         <Paper sx={{ p: 3 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}><Typography variant="h5">Email Templates</Typography><Button variant="contained" onClick={() => handleOpenTemplateModal()}>Create New Template</Button></Box>
-           
-                            {templates.map(t => (<Paper key={t.id} variant="outlined" sx={{ p: 2, mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><Typography>{t.name}</Typography><Box><Button size="small" onClick={() => handleOpenTemplateModal(t)}>Edit</Button><Button size="small" color="error" onClick={() => handleDeleteTemplate(t.id)}>Delete</Button></Box></Paper>))}
-                             {templates.length === 0 && <Typography color="text.secondary" 
-                                sx={{mt: 2}}>No templates created yet.</Typography>}
-                        </Paper> 
+                            <Typography variant="h5" gutterBottom>Email Monitor</Typography>
+                            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+                                Create a monitor that checks an IMAP inbox for new messages containing a keyword in the subject, and logs matches for review.
+                            </Typography>
+                            <Grid container spacing={2}>
+                                <Grid item xs={12} md={6}>
+                                    <Paper sx={{ p: 2, mb: 2 }}>
+                                        <Typography variant="subtitle1" gutterBottom>Create new monitor</Typography>
+                                        <TextField label="Monitor Name" name="name" value={newMonitor.name} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} />
+                                        <TextField label="IMAP Host" name="imap_host" value={newMonitor.imap_host} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} />
+                                        <TextField label="IMAP Port" name="imap_port" type="number" value={newMonitor.imap_port} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} />
+                                        <TextField label="Email Address" name="username" value={newMonitor.username} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} />
+                                        <TextField label="Email Password" type="password" name="password" value={newMonitor.password} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} />
+                                        <TextField label="Folder" name="folder" value={newMonitor.folder} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} />
+                                        <TextField label="Subject contains" name="subject_contains" value={newMonitor.subject_contains} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} helperText="Keyword to match the email subject." />
+                                        <TextField label="Poll interval (seconds)" name="interval_seconds" type="number" value={newMonitor.interval_seconds} onChange={handleMonitorFieldChange} fullWidth sx={{ mb: 2 }} />
+                                        <Button variant="contained" onClick={handleCreateMonitor} disabled={isCreatingMonitor}>
+                                            {isCreatingMonitor ? <CircularProgress size={24} /> : 'Create Monitor'}
+                                        </Button>
+                                    </Paper>
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                    <Paper sx={{ p: 2, mb: 2 }}>
+                                        <Typography variant="subtitle1" gutterBottom>Monitors</Typography>
+                                        {monitorLoading ? <CircularProgress /> : (
+                                            monitors.length === 0 ? (
+                                                <Typography color="text.secondary">No monitors configured yet.</Typography>
+                                            ) : (
+                                                <List>
+                                                    {monitors.map(m => (
+                                                        <ListItem key={m.id} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                                                            <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                <Typography variant="subtitle2">{m.name}</Typography>
+                                                                <Box>
+                                                                    <Button size="small" onClick={() => handleSelectMonitor(m.id)} sx={{ mr: 1 }}>
+                                                                        {selectedMonitorId === m.id ? 'Selected' : 'View'}
+                                                                    </Button>
+                                                                    <Button size="small" color="error" onClick={() => handleDeleteMonitor(m.id)}>Delete</Button>
+                                                                </Box>
+                                                            </Box>
+                                                            <Typography variant="body2" color="text.secondary">{m.username} @ {m.imap_host}:{m.imap_port} • "{m.subject_contains}"</Typography>
+                                                            <Typography variant="body2" color="text.secondary">Interval: {m.interval_seconds}s {m.last_checked ? `• last checked ${new Date(m.last_checked * 1000).toLocaleString()}` : ''}</Typography>
+                                                        </ListItem>
+                                                    ))}
+                                                </List>
+                                            )
+                                        )}
+                                    </Paper>
+                                    {selectedMonitorId && (
+                                        <Paper sx={{ p: 2 }}>
+                                            <Typography variant="subtitle1" gutterBottom>Matches</Typography>
+                                            {monitorMatches.length === 0 ? (
+                                                <Typography color="text.secondary">No matches yet.</Typography>
+                                            ) : (
+                                                <List>
+                                                    {monitorMatches.map((match, idx) => (
+                                                        <ListItem key={idx} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                                                            <Typography variant="body2"><strong>{match.subject}</strong></Typography>
+                                                            <Typography variant="body2" color="text.secondary">From: {match.from}</Typography>
+                                                            <Typography variant="body2" color="text.secondary">{new Date(match.timestamp).toLocaleString()}</Typography>
+                                                            <Typography variant="body2" sx={{ mt: 1 }}>{match.snippet}</Typography>
+                                                            <Divider sx={{ my: 1, width: '100%' }} />
+                                                        </ListItem>
+                                                    ))}
+                                                </List>
+                                            )}
+                                        </Paper>
+                                    )}
+                                </Grid>
+                            </Grid>
+                        </Paper>
                      )}
 
-                     {view === 'history' && ( 
- 
+                     {view === 'history' && (
                         <Paper sx={{ p: 3 }}>
                             <Typography variant="h5" gutterBottom>Communication History</Typography>
-                  
                             <TextField fullWidth label="Search by Registration No. or Name" value={historySearch} onChange={e => { setHistorySearch(e.target.value); fetchHistory(e.target.value); }} sx={{ mb: 2 }} />
-                             {history.map(h => (
-                 
+                            {history.map(h => (
                                 <Paper key={h.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
-                                     <Typography variant="subtitle1"><strong>To:</strong> {h.student_name} ({h.student_reg_no})</Typography>
-             
-                                     <Typography variant="body2" color="text.secondary"><strong>Recipients:</strong> {h.recipients}</Typography>
-                                     <Typography variant="body2" color="text.secondary"><strong>Sent By:</strong> {h.teacher_email} on {new Date(h.sent_at).toLocaleString()}</Typography>
-      
-                                     <TextField multiline fullWidth readOnly value={h.body} sx={{ mt: 1, bgcolor: '#222', '.MuiInputBase-input': { fontFamily: 'monospace' } }} />
-                              
+                                    <Typography variant="subtitle1"><strong>To:</strong> {h.student_name} ({h.student_reg_no})</Typography>
+                                    <Typography variant="body2" color="text.secondary"><strong>Recipients:</strong> {h.recipients}</Typography>
+                                    <Typography variant="body2" color="text.secondary"><strong>Sent By:</strong> {h.teacher_email} on {new Date(h.sent_at).toLocaleString()}</Typography>
+                                    <TextField multiline fullWidth readOnly value={h.body} sx={{ mt: 1, bgcolor: '#222', '.MuiInputBase-input': { fontFamily: 'monospace' } }} />
                                 </Paper>
-                             ))}
-                             {history.length === 0 && <Typography color="text.secondary" sx={{mt: 2}}>No history found matching your search.</Typography>}
-    
-                        </Paper> 
+                            ))}
+                            {history.length === 0 && <Typography color="text.secondary" sx={{mt: 2}}>No history found matching your search.</Typography>}
+                        </Paper>
                      )}
-
                      {view === 'teachers' && user.is_admin && ( 
       
                         <Paper sx={{ p: 3 }}>
@@ -906,7 +1333,7 @@ function App() {
 
              {/* Template 
                  Modal */}
-             <Modal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500, sx: { backgroundColor: 'rgba(0, 0, 0, 0.7)' } }}>
+             <Modal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500, sx: { backgroundColor: '#000' } }}>
                   <Fade in={templateModalOpen}>
                      <Box sx={editModalStyle}>
     
@@ -922,7 +1349,7 @@ function App() {
              
              {/* Management Edit Modal (for 
                  BOTH types) */}
-             <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500, sx: { backgroundColor: 'rgba(0, 0, 0, 0.7)' } }}>
+             <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500, sx: { backgroundColor: '#000' } }}>
                   <Fade in={editModalOpen}>
                      <Box sx={{...editModalStyle, overflowY: 'auto'}}> 
  

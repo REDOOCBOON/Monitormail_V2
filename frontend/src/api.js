@@ -167,3 +167,9 @@ export const deleteTemplate = (id) => request(`/api/templates/${id}`, { method: 
 // --- History ---
 export const getHistory = (searchQuery = '') => request(`/api/history?search=${encodeURIComponent(searchQuery)}`, { method: 'GET' });
 
+// --- Email Monitoring (Phase 1) ---
+export const listMonitors = () => request('/api/monitors', { method: 'GET' });
+export const createMonitor = (monitor) => request('/api/monitors', { method: 'POST', body: JSON.stringify(monitor) });
+export const deleteMonitor = (id) => request(`/api/monitors/${id}`, { method: 'DELETE' });
+export const getMonitorMatches = (id) => request(`/api/monitors/${id}/matches`, { method: 'GET' });
+

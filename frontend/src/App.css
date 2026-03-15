@@ -1,16 +1,19 @@
 body {
-    background-color: #121212 !important;
+    background: linear-gradient(135deg, #0d1b2a 0%, #07141f 55%, #0b223a 100%);
+    min-height: 100vh;
+    color: #f1f5ff;
 }
 
 .preview-box {
     width: 100%;
     min-height: 200px;
-    font-family: monospace;
+    font-family: ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
     font-size: 0.85rem;
-    border: 1px solid rgba(255, 255, 255, 0.23);
-    border-radius: 4px;
-    padding: 12px;
-    background-color: #1e1e1e; /* Darker than paper for contrast */
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 14px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 12px 20px rgba(0, 0, 0, 0.35);
     color: #e0e0e0;
     resize: vertical;
 }
@@ -22,9 +25,16 @@ body {
 .email-body-textarea {
     width: 100%;
     margin-top: 16px;
-    font-family: monospace;
+    font-family: ui-monospace, SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
     font-size: 0.9rem;
-    background-color: #121212 !important;
+    background: rgba(255, 255, 255, 0.05) !important;
     color: #e0e0e0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    border-radius: 10px !important;
+}
+
+/* Smooth transitions for interactive elements */
+* {
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 

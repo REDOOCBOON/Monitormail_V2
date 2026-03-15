@@ -18,14 +18,91 @@ import json
 from functools import wraps
 import os
 import csv
+import secrets
 # tabula is no longer needed
+
+import threading
+import time
+import uuid
+import imaplib
+import email
+from email.header import decode_header
+
+# --- Configuration ---
+# Use a strong secret key via environment variable; fallback to a secure random value for dev.
+SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_urlsafe(32)
+
+# Restrict CORS to a trusted frontend origin (set FRONTEND_ORIGIN in your environment).
+# If you deploy the frontend and backend on different domains, set FRONTEND_ORIGIN to the frontend URL.
+# For quick testing, set it to '*' to allow all origins, but for production, set it to your specific frontend URL.
+FRONTEND_ORIGIN = os.environ.get('FRONTEND_ORIGIN', '*')
+
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    DB_CONFIG = DATABASE_URL
+else:
+    DB_CONFIG = {
+        'dbname': 'students_details',
+        'user': 'postgres',
+        'password': 'password123',
+        'host': 'localhost',
+        'port': '5432'
+    }
 
 # --- App Initialization ---
 app = Flask(__name__)
-CORS(app)
+app.config['SECRET_KEY'] = SECRET_KEY
+
+# Use a wide-open CORS policy when FRONTEND_ORIGIN is set to '*'.
+# Otherwise, restrict to the exact frontend origin.
+if FRONTEND_ORIGIN == '*':
+    CORS(app, origins='*', supports_credentials=True)
+else:
+    CORS(app, origins=[FRONTEND_ORIGIN], supports_credentials=True)
+
+# --- Rate limiting helpers (simple in-memory, per-IP login limits) ---
+_login_attempts = {}  # ip -> [timestamp, ...]
+LOGIN_ATTEMPT_WINDOW = 15 * 60  # seconds
+MAX_LOGIN_ATTEMPTS = 5
+
+
+def _cleanup_login_attempts():
+    now = time.time()
+    for ip in list(_login_attempts.keys()):
+        _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < LOGIN_ATTEMPT_WINDOW]
+        if not _login_attempts[ip]:
+            del _login_attempts[ip]
+
+
+def _record_login_attempt(ip: str):
+    _cleanup_login_attempts()
+    _login_attempts.setdefault(ip, []).append(time.time())
+
+
+def _is_rate_limited(ip: str) -> bool:
+    _cleanup_login_attempts()
+    attempts = _login_attempts.get(ip, [])
+    return len(attempts) >= MAX_LOGIN_ATTEMPTS
+
+
+# --- Security headers ---
+@app.after_request
+def set_security_headers(response):
+    response.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=()'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    return response
 
 # --- Configuration ---
-app.config['SECRET_KEY'] = 'weakkey'
+# Use a strong secret key via environment variable; fallback to a secure random value for dev.
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_urlsafe(32)
+
+# Restrict CORS to a trusted frontend origin (set FRONTEND_ORIGIN in your environment).
+FRONTEND_ORIGIN = os.environ.get('FRONTEND_ORIGIN', 'http://localhost:3000')
+
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if DATABASE_URL:
     DB_CONFIG = DATABASE_URL 
@@ -70,16 +147,152 @@ def update_dashboard_analytics():
     except Exception as e:
         print(f"Error updating analytics: {e}")
 
+# --- Email Monitoring (Phase 1: Simple IMAP-based rule matching) ---
+monitor_lock = threading.Lock()
+monitors = {}  # monitor_id -> monitor config
+monitor_matches = {}  # monitor_id -> list of match events
+
+
+def _decode_header_value(value):
+    if not value:
+        return ''
+    decoded_parts = decode_header(value)
+    result = ''
+    for part, encoding in decoded_parts:
+        if isinstance(part, bytes):
+            try:
+                result += part.decode(encoding or 'utf-8', errors='ignore')
+            except Exception:
+                result += part.decode('utf-8', errors='ignore')
+        else:
+            result += part
+    return result
+
+
+def _extract_email_snippet(msg):
+    # Try to get a short snippet from the email body
+    snippet = ''
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == 'text/plain' and not part.get('Content-Disposition'):
+                try:
+                    snippet = part.get_payload(decode=True).decode(errors='ignore')
+                    break
+                except Exception:
+                    continue
+    else:
+        try:
+            snippet = msg.get_payload(decode=True).decode(errors='ignore')
+        except Exception:
+            snippet = ''
+    return (snippet or '').strip().replace('\r', '').replace('\n', ' ')[:250]
+
+
+def _run_monitor_once(monitor):
+    # Monitor structure: {id, name, imap_host, imap_port, username, password, folder, subject_contains, interval_seconds, last_checked, seen_uids}
+    try:
+        imap_host = monitor.get('imap_host')
+        imap_port = int(monitor.get('imap_port', 993))
+        username = monitor.get('username')
+        password = monitor.get('password')
+        folder = monitor.get('folder') or 'INBOX'
+        subject_filter = (monitor.get('subject_contains') or '').strip().lower()
+
+        if not imap_host or not username or not password or not subject_filter:
+            return
+
+        mail = imaplib.IMAP4_SSL(imap_host, imap_port, timeout=30)
+        mail.login(username, password)
+        mail.select(folder)
+
+        # Search for unseen messages
+        res, data = mail.search(None, 'UNSEEN')
+        if res != 'OK':
+            mail.logout()
+            return
+
+        uids = data[0].split() if data and data[0] else []
+        new_uids = []
+        seen_uids = monitor.setdefault('seen_uids', set())
+        for uid in uids:
+            if uid in seen_uids:
+                continue
+            new_uids.append(uid)
+
+        if not new_uids:
+            mail.logout()
+            return
+
+        for uid in new_uids:
+            res, msg_data = mail.fetch(uid, '(RFC822)')
+            if res != 'OK' or not msg_data or not msg_data[0]:
+                continue
+            raw = msg_data[0][1]
+            try:
+                msg = email.message_from_bytes(raw)
+            except Exception:
+                continue
+            subj = _decode_header_value(msg.get('Subject'))
+            sender = _decode_header_value(msg.get('From'))
+            snippet = _extract_email_snippet(msg)
+            match = False
+            if subject_filter in (subj or '').lower() or subject_filter in (snippet or '').lower():
+                match = True
+            if match:
+                event = {
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'subject': subj,
+                    'from': sender,
+                    'snippet': snippet,
+                    'uid': uid.decode() if isinstance(uid, bytes) else str(uid)
+                }
+                with monitor_lock:
+                    monitor_matches.setdefault(monitor['id'], []).append(event)
+            seen_uids.add(uid)
+
+        mail.logout()
+    except Exception as e:
+        # Log, but do not raise to keep the background thread running
+        print(f"Monitor error (id={monitor.get('id')}): {e}")
+
+
+def _monitor_loop():
+    while True:
+        now = time.time()
+        with monitor_lock:
+            monitors_list = list(monitors.values())
+        for monitor in monitors_list:
+            interval = int(monitor.get('interval_seconds', 60))
+            last_checked = monitor.get('last_checked', 0)
+            if now - last_checked >= interval:
+                monitor['last_checked'] = now
+                _run_monitor_once(monitor)
+        time.sleep(5)
+
+
+def _ensure_monitor_thread():
+    if not hasattr(app, '_monitor_thread_started'):
+        thread = threading.Thread(target=_monitor_loop, daemon=True)
+        thread.start()
+        app._monitor_thread_started = True
+
 # --- Authentication Decorators (Unchanged) ---
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = request.headers.get('x-access-token')
-        if not token: return jsonify({'message': 'Token is missing!'}), 401
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
         try:
-   
-          g.current_user = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-        except:
+            g.current_user = jwt.decode(
+                token,
+                app.config['SECRET_KEY'],
+                algorithms=["HS256"],
+                options={'require': ['exp', 'iat']}
+            )
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired!'}), 401
+        except jwt.InvalidTokenError:
             return jsonify({'message': 'Token is invalid!'}), 401
         return f(*args, **kwargs)
     return decorated
@@ -88,19 +301,25 @@ def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = request.headers.get('x-access-token')
-   
-        if not token: return jsonify({'message': 'Token is missing!'}), 401
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
         try:
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            data = jwt.decode(
+                token,
+                app.config['SECRET_KEY'],
+                algorithms=["HS256"],
+                options={'require': ['exp', 'iat']}
+            )
             if not data.get('is_admin'):
                 return jsonify({'message': 'Admin privileges required!'}), 403
-     
             g.current_user = data
-        except:
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired!'}), 401
+        except jwt.InvalidTokenError:
             return jsonify({'message': 'Token is invalid!'}), 401
         return f(*args, **kwargs)
     return decorated
-    
+
 # --- PDF Processing Logic (Original for Low Attendance Workflow) ---
 def process_pdf_to_csv_string(pdf_file):
     full_text = ""
@@ -137,31 +356,48 @@ def process_pdf_to_csv_string(pdf_file):
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     auth = request.authorization
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+
+    if _is_rate_limited(ip):
+        return jsonify({'message': 'Too many login attempts. Please try again later.'}), 429
+
     if not auth or not auth.username or not auth.password:
+        _record_login_attempt(ip)
         return jsonify({'message': 'Could not verify'}), 401
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, email, password_hash, name, is_admin FROM teachers WHERE email = %s", (auth.username,))
-      
         teacher = cursor.fetchone()
         cursor.close()
         conn.close()
-        if not teacher: return jsonify({'message': 'User not found'}), 401
+
+        if not teacher:
+            _record_login_attempt(ip)
+            return jsonify({'message': 'User not found'}), 401
+
         if check_password_hash(teacher[2], auth.password):
+            # Reset attempts on successful login
+            if ip in _login_attempts:
+                del _login_attempts[ip]
+
+            now = datetime.now(timezone.utc)
             token = jwt.encode({
                 'id': teacher[0],
-                'user': teacher[1], 
-                'name': teacher[3], 
+                'user': teacher[1],
+                'name': teacher[3],
                 'is_admin': teacher[4],
-                'exp': datetime.now(timezone.utc) + timedelta(hours=24)
-     
+                'iat': now,
+                'nbf': now,
+                'exp': now + timedelta(hours=24)
             }, app.config['SECRET_KEY'], algorithm="HS256")
             return jsonify({
-                'token': token, 
+                'token': token,
                 'user': {'id': teacher[0], 'email': teacher[1], 'name': teacher[3], 'is_admin': teacher[4]}
             })
- 
+
+        _record_login_attempt(ip)
         return jsonify({'message': 'Incorrect password'}), 401
     except Exception as e:
         return jsonify({'message': f'Database connection error: {e}'}), 500
@@ -215,18 +451,27 @@ def fetch_details():
         
         merged_data = []
         for _, row in grouped_subjects.iterrows():
-             details = details_map.get(row['Reg.No'])
-             if details: 
-                 
-                 merged_data.append({
-                     'reg_no': row['Reg.No'],
-                     'name': details.get('name'), 
-                     'student_email': details.get('student_email'),
-          
-                     'parent_email': details.get('parent_email'),
-                     'subjects': row['subjects']
-                 })
-                 
+            reg_no = row['Reg.No']
+            details = details_map.get(reg_no)
+            if details:
+                merged_data.append({
+                    'reg_no': reg_no,
+                    'name': details.get('name'),
+                    'student_email': details.get('student_email'),
+                    'parent_email': details.get('parent_email'),
+                    'subjects': row['subjects'],
+                    'missing': False
+                })
+            else:
+                # Student not found in DB; allow frontend to collect details
+                merged_data.append({
+                    'reg_no': reg_no,
+                    'name': '',
+                    'student_email': '',
+                    'parent_email': '',
+                    'subjects': row['subjects'],
+                    'missing': True
+                })
         return jsonify(merged_data)
     except Exception as e:
          if conn: 
@@ -775,6 +1020,80 @@ def get_history():
   
         return jsonify({'error': str(e)}), 500
 
+
+# --- Email Monitor Endpoints (Phase 1 MVP) ---
+@app.route('/api/monitors', methods=['GET'])
+@token_required
+def list_monitors():
+    _ensure_monitor_thread()
+    with monitor_lock:
+        return jsonify([{
+            'id': m['id'],
+            'name': m.get('name'),
+            'imap_host': m.get('imap_host'),
+            'imap_port': m.get('imap_port'),
+            'username': m.get('username'),
+            'folder': m.get('folder'),
+            'subject_contains': m.get('subject_contains'),
+            'interval_seconds': m.get('interval_seconds'),
+            'last_checked': m.get('last_checked')
+        } for m in monitors.values()])
+
+@app.route('/api/monitors', methods=['POST'])
+@token_required
+def create_monitor():
+    payload = request.get_json() or {}
+    name = payload.get('name', '').strip() or 'Unnamed Monitor'
+    imap_host = payload.get('imap_host', '').strip()
+    imap_port = payload.get('imap_port', 993)
+    username = payload.get('username', '').strip()
+    password = payload.get('password', '')
+    folder = payload.get('folder', 'INBOX').strip() or 'INBOX'
+    subject_contains = payload.get('subject_contains', '').strip()
+    interval_seconds = int(payload.get('interval_seconds', 60))
+
+    if not imap_host or not username or not password or not subject_contains:
+        return jsonify({'message': 'imap_host, username, password, and subject_contains are required.'}), 400
+
+    monitor_id = str(uuid.uuid4())
+    monitor = {
+        'id': monitor_id,
+        'name': name,
+        'imap_host': imap_host,
+        'imap_port': imap_port,
+        'username': username,
+        'password': password,
+        'folder': folder,
+        'subject_contains': subject_contains,
+        'interval_seconds': interval_seconds,
+        'last_checked': 0,
+        'seen_uids': set()
+    }
+    with monitor_lock:
+        monitors[monitor_id] = monitor
+        monitor_matches.setdefault(monitor_id, [])
+
+    _ensure_monitor_thread()
+    return jsonify({'id': monitor_id, 'name': name}), 201
+
+@app.route('/api/monitors/<monitor_id>', methods=['DELETE'])
+@token_required
+def delete_monitor(monitor_id):
+    with monitor_lock:
+        if monitor_id in monitors:
+            monitors.pop(monitor_id, None)
+            monitor_matches.pop(monitor_id, None)
+            return jsonify({'message': 'Monitor deleted.'})
+    return jsonify({'message': 'Monitor not found.'}), 404
+
+@app.route('/api/monitors/<monitor_id>/matches', methods=['GET'])
+@token_required
+def get_monitor_matches(monitor_id):
+    with monitor_lock:
+        matches = monitor_matches.get(monitor_id, [])
+    return jsonify(matches)
+
+
 @app.route('/api/export-excel-structured', methods=['POST'])
 @token_required
 def export_excel_structured():
@@ -792,4 +1111,5 @@ def export_excel_structured():
         return jsonify({'error': f'Excel export failed: {e}'}), 500
         
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() in ('1', 'true', 'yes')
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=debug_mode)
