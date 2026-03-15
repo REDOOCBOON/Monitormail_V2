@@ -833,7 +833,7 @@ function App() {
     const handleSendSingleEmail = async (payload, attachment, regNo) => { try { const result = await api.sendEmails(payload, attachment); if (result.success && result.results[0]?.status === 'success') { setSnackbar({ open: true, message: `Email sent to ${regNo}.`, severity: 'success' }); fetchAnalytics(); } else { const reason = result.results[0]?.reason || result.reason; setSnackbar({ open: true, message: `Failed to send to ${regNo}: ${reason}`, severity: 'error' }); } } catch (err) { setSnackbar({ open: true, message: `Failed to 
         send to ${regNo}: ${err.message}`, severity: 'error' }); } };
 
-    // Template handlers
+   
     //const handleOpenTemplateModal = (template = { id: null, name: '', body: '' }) => { setCurrentTemplate(template); setTemplateModalOpen(true); };
    // const handleSaveTemplate = async () => { try { await api.saveTemplate(currentTemplate); setTemplateModalOpen(false); fetchTemplates(); setSnackbar({ open: true, message: 'Template saved!', severity: 'success' }); } catch (err) { setSnackbar({ open: true, message: `Save failed: ${err.message}`, severity: 'error' }); } };
    // const handleDeleteTemplate = async (id) => 
