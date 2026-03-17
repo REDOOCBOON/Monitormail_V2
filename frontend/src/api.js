@@ -1,4 +1,4 @@
-const API_URL = "https://monitormail-api.onrender.com"; // Change to your deployed backend URL in production
+const API_URL = "http://127.0.0.1:5000"; // Local backend for development
 
 const request = async (endpoint, options) => {
     const token = localStorage.getItem('token');
