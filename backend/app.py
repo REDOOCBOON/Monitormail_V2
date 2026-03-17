@@ -607,10 +607,12 @@ def send_emails_endpoint():
      
         update_dashboard_analytics()
         return jsonify({'success': True, 'results': results})
-    except smtplib.SMTPAuthenticationError:
+    except smtplib.SMTPAuthenticationError as e:
+        print("SMTP AUTH ERROR:", str(e))   # 👈 ADD
         if conn: conn.close()
         return jsonify({'success': False, 'reason': 'Gmail authentication failed. Check email/App Password.'}), 401
     except Exception as e:
+        print("FINAL ERROR:", str(e))   # 👈 ADD THIS (MOST IMPORTANT)
         if conn: conn.close() 
         return jsonify({'success': False, 'reason': str(e)}), 500
 
