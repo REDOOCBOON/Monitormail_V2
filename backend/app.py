@@ -506,14 +506,21 @@ def fetch_details():
 @app.route('/api/send-emails', methods=['POST'])
 @token_required
 def send_emails_endpoint():
+    print("API HIT: send_emails_endpoint")   # debug
    
     conn = None 
     try:
         email_payload_str = request.form.get('email_payload')
         if not email_payload_str:
+            print("ERROR: email_payload is missing")
             return jsonify({'success': False, 'reason': 'Email payload is missing.'}), 400
         
-        data = json.loads(email_payload_str)
+        try:
+            data = json.loads(email_payload_str)
+        except Exception as e:
+            print("JSON ERROR:", str(e))
+            return jsonify({'success': False, 'reason': 'Invalid JSON'}), 400
+        #data = json.loads(email_payload_str)
         attachment = request.files.get('attachment')
  
         
