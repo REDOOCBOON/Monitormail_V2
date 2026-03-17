@@ -647,7 +647,8 @@ function App() {
 
     useEffect(() => {
         if (token) {
-            if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTemplates(); 
+if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTemplates(); 
+            if (view === 'templates') fetchTemplates();
             
             if (view === 'dashboard') fetchAnalytics();
             if (view === 'history') fetchHistory();
@@ -939,6 +940,7 @@ function App() {
                             <Tab label="Low Attendance" value="workflow" sx={{ textTransform: 'none' }} />
                             <Tab label="Alert/Notify" value="alert" sx={{ textTransform: 'none' }} />
                             <Tab label="Mail Monitor" value="monitor" sx={{ textTransform: 'none' }} />
+<Tab label="Templates" value="templates" sx={{ textTransform: 'none' }} />
                             {user.is_admin && <Tab label="Teacher Management" value="teachers" sx={{ textTransform: 'none' }} />}
                             <Tab label="Student Management" value="students" sx={{ textTransform: 'none' }} />
                         </Tabs>
@@ -1264,6 +1266,78 @@ function App() {
                             <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Admin Status</TableCell><TableCell align="right">Actions</TableCell></TableRow></TableHead><TableBody>{teachers.map(t => (<TableRow key={t.id}><TableCell>{t.name}</TableCell><TableCell>{t.email}</TableCell><TableCell>{t.is_admin ? 'Yes' : 'No'}</TableCell><TableCell align="right"><Button size="small" onClick={() => handleOpenEditModal(t, 'teacher')}>Edit</Button><Button size="small" color="error" disabled={t.id === user.id} onClick={() => handleDeleteTeacher(t.id)}>Delete</Button></TableCell></TableRow>))}</TableBody></Table></TableContainer>
                         </Paper> 
  
+                     )}
+
+                     {view === 'templates' && (
+                        <Paper sx={{ p: 3 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                                <Typography variant="h5">Email Templates</Typography>
+                                <Button 
+                                    variant="contained" 
+                                    onClick={() => { setCurrentTemplate({ id: null, name: '', body: '' }); setTemplateModalOpen(true); }}
+                                >
+                                    New Template
+                                </Button>
+                            </Box>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                Design reusable email templates. Use <code>[Student Name]</code> and <code>[Subject List]</code> placeholders.
+                            </Typography>
+                            {templates.length === 0 ? (
+                                <Paper sx={{ p: 4, textAlign: 'center' }}>
+                                    <Typography color="text.secondary">No templates yet. Create your first one!</Typography>
+                                </Paper>
+                            ) : (
+                                <TableContainer>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>Name</TableCell>
+                                                <TableCell>Preview</TableCell>
+                                                <TableCell width={120}>Actions</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {templates.map((template) => (
+                                                <TableRow key={template.id}>
+                                                    <TableCell>{template.name}</TableCell>
+                                                    <TableCell sx={{ maxWidth: 400 }}>
+                                                        <Typography variant="body2" noWrap sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                                                            {template.body.substring(0, 100)}...
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button 
+                                                            size="small" 
+                                                            onClick={() => { setCurrentTemplate(template); setTemplateModalOpen(true); }}
+                                                        >
+                                                            Edit
+                                                        </Button>
+                                                        <Button 
+                                                            size="small" 
+                                                            color="error" 
+                                                            sx={{ ml: 1 }}
+                                                            onClick={async () => {
+                                                                if (window.confirm('Delete this template?')) {
+                                                                    try {
+                                                                        await api.deleteTemplate(template.id);
+                                                                        fetchTemplates();
+                                                                        setSnackbar({ open: true, message: 'Template deleted.', severity: 'info' });
+                                                                    } catch (err) {
+                                                                        setSnackbar({ open: true, message: `Delete failed: ${err.message}`, severity: 'error' });
+                                                                    }
+                                                                }
+                                                            }}
+                                                        >
+                                                            Delete
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            )}
+                        </Paper>
                      )}
 
                      {view === 'students' && ( 
