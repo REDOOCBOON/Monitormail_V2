@@ -536,8 +536,7 @@ def send_emails_endpoint():
                 return email_str.strip() 
             return None
 
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
         server.login(sender_email, sender_password)
         results = []
         conn = get_db_connection()
@@ -599,6 +598,7 @@ def send_emails_endpoint():
 
      
             except Exception as e:
+                print("EMAIL ERROR:", str(e))
                 conn.rollback() 
                 results.append({'reg_no': student['reg_no'], 'status': 'failed', 'reason': str(e)})
         
@@ -657,8 +657,7 @@ def alert_all_students():
            
             return jsonify({'success': False, 'reason': 'No students found in database.'}), 404
 
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
         server.login(sender_email, sender_password)
         results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
         
@@ -717,6 +716,7 @@ def alert_all_students():
                         log_conn.commit()
 
             except Exception as e:
+                print("EMAIL ERROR:", str(e))
                 results['fail_count'] += 1
                 
                 results['failed_regs'].append(reg_no)
