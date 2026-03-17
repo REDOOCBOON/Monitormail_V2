@@ -131,7 +131,7 @@ def ensure_admin_exists():
         count = cursor.fetchone()[0]
 
         if count == 0:
-            admin_password = generate_password_hash("admin123")
+            admin_password = generate_password_hash("admin123", method='pbkdf2:sha256')
 
             cursor.execute(
                 "INSERT INTO teachers (name, email, password_hash, is_admin) VALUES (%s,%s,%s,%s)",
@@ -793,7 +793,7 @@ def create_teacher():
             return jsonify({'message': 'Missing data'}), 400
 
         # FIX: use Werkzeug default hash (scrypt)
-        hashed_password = generate_password_hash(password)
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
 
         conn = get_db_connection()
         cursor = conn.cursor()
