@@ -402,7 +402,7 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
 
                                     <TextField multiline fullWidth rows={6} value={emailBodies[student.reg_no] || ''} onChange={e => handleBodyChange(student.reg_no, e.target.value)} className="email-body-textarea" disabled={isSendingAll}/>
 
-                                    <Button variant="outlined" size="small" sx={{ mt: 1 }} disabled={!senderEmail || !senderPassword || singleSendLoading === student.reg_no || isSendingAll} onClick={() => handleSendSingle(student)}>
+                                    <Button variant="outlined" size="small" sx={{ mt: 1 }} disabled={singleSendLoading === student.reg_no || isSendingAll} onClick={() => handleSendSingle(student)}>
                                         {singleSendLoading === student.reg_no ? <CircularProgress 
                                             size={20} /> : 'Send Individually'}
                                     </Button>
