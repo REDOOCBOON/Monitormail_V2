@@ -7,3 +7,4 @@ pdfplumber
 python-dotenv
 werkzeug
 openpyxl  # For Excel export in /api/export-excel-structured
+requests  # For Brevo REST API email sending
