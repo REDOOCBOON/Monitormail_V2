@@ -1,10 +1,12 @@
 """
-Email sending utility with retry logic, proper error handling, and production-ready SMTP configuration.
+Email sending utility with Brevo SMTP relay for production environments.
+Supports both Brevo SMTP and fallback Gmail SMTP for local development.
 """
 import smtplib
 import socket
 import time
 import logging
+import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -13,87 +15,124 @@ from email import encoders
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Check if we're using Brevo (production) or Gmail SMTP (development)
+USE_BREVO = os.environ.get('BREVO_SMTP_PASSWORD') is not None
+BREVO_SMTP_EMAIL = os.environ.get('BREVO_SMTP_EMAIL')
+BREVO_SMTP_PASSWORD = os.environ.get('BREVO_SMTP_PASSWORD')
+BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@monitormail.com')
+
 class EmailSender:
-    """Handles email sending with retry logic and proper error handling."""
+    """Handles email sending with Brevo (production) or Gmail SMTP (development)."""
     
-    def __init__(self, sender_email, sender_password, max_retries=3, timeout=30):
+    def __init__(self, sender_email=None, sender_password=None, max_retries=3, timeout=30):
         """
         Initialize email sender.
         
-        Args:
-            sender_email: Gmail email address
-            sender_password: Gmail app password
-            max_retries: Number of retries on transient failures (default: 3)
-            timeout: Socket timeout in seconds (default: 30)
+        For production (with BREVO_SMTP_PASSWORD):
+          - sender_email and sender_password are ignored
+          - Uses Brevo SMTP relay automatically
+          
+        For development (without BREVO_SMTP_PASSWORD):
+          - Uses Gmail SMTP (sender_email and sender_password required)
         """
-        self.sender_email = sender_email
+        self.sender_email = sender_email or BREVO_FROM_EMAIL
         self.sender_password = sender_password
         self.max_retries = max_retries
         self.timeout = timeout
         self.server = None
+        self.use_brevo = USE_BREVO
+        
+        if self.use_brevo:
+            logger.info(f"Configured for Brevo SMTP relay (production)")
+        else:
+            logger.info(f"Configured for Gmail SMTP (development mode)")
     
     def connect(self):
         """
-        Establish SMTP connection with retry logic.
+        Establish SMTP connection.
         
-        Returns:
-            bool: True if connection successful, False otherwise
-        
-        Raises:
-            smtplib.SMTPAuthenticationError: If credentials are invalid
-            Exception: For other connection errors (will log and raise)
+        Uses Brevo SMTP relay if BREVO_SMTP_PASSWORD is set.
+        Falls back to Gmail SMTP otherwise.
         """
+        if self.use_brevo:
+            return self._connect_brevo()
+        else:
+            return self._connect_gmail()
+    
+    def _connect_brevo(self):
+        """Connect to Brevo SMTP relay."""
         for attempt in range(1, self.max_retries + 1):
             try:
-                logger.info(f"[Attempt {attempt}/{self.max_retries}] Connecting to SMTP server...")
+                logger.info(f"[Attempt {attempt}/{self.max_retries}] Connecting to Brevo SMTP...")
                 
-                # Set socket timeout globally for this connection
                 socket.setdefaulttimeout(self.timeout)
                 
-                # Create SMTP connection with explicit timeout
-                self.server = smtplib.SMTP(
-                    'smtp.gmail.com',
-                    587,
-                    timeout=self.timeout
-                )
-                
-                # Enable debug logging if needed
-                # self.server.set_debuglevel(1)
-                
-                # Identify ourselves and wait for response
+                # Brevo SMTP Server (simple SMTP with email:password auth)
+                self.server = smtplib.SMTP('smtp-relay.brevo.com', 587, timeout=self.timeout)
                 self.server.ehlo()
-                
-                # Start TLS encryption
-                logger.info("Starting TLS...")
                 self.server.starttls()
-                
-                # Re-identify ourselves over the encrypted connection
                 self.server.ehlo()
                 
-                # Login with credentials
-                logger.info("Authenticating...")
-                self.server.login(self.sender_email, self.sender_password)
+                # Brevo uses standard email:password authentication
+                self.server.login(BREVO_SMTP_EMAIL, BREVO_SMTP_PASSWORD)
                 
-                logger.info("✅ SMTP connection successful!")
+                logger.info("✅ Brevo SMTP connection successful!")
                 return True
                 
             except smtplib.SMTPAuthenticationError as e:
-                logger.error(f"❌ Authentication failed: {e}")
+                logger.error(f"❌ Brevo authentication failed: {e}")
                 self.server = None
-                raise  # Don't retry on auth errors
-                
-            except (socket.timeout, socket.gaierror, ConnectionRefusedError, ConnectionResetError, OSError) as e:
+                raise
+            except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError) as e:
                 logger.warning(f"⚠️  Connection attempt {attempt} failed: {type(e).__name__}: {e}")
                 self.server = None
                 
                 if attempt < self.max_retries:
-                    wait_time = 2 ** attempt  # Exponential backoff: 2s, 4s, 8s
+                    wait_time = 2 ** attempt
                     logger.info(f"Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
                 else:
                     logger.error(f"❌ Failed to connect after {self.max_retries} attempts")
                     raise
-                    
+            except Exception as e:
+                logger.error(f"❌ Unexpected error: {type(e).__name__}: {e}")
+                self.server = None
+                raise
+        
+        return False
+    
+    def _connect_gmail(self):
+        """Connect to Gmail SMTP (for local development only)."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.info(f"[Attempt {attempt}/{self.max_retries}] Connecting to Gmail SMTP...")
+                
+                socket.setdefaulttimeout(self.timeout)
+                
+                self.server = smtplib.SMTP('smtp.gmail.com', 587, timeout=self.timeout)
+                self.server.ehlo()
+                self.server.starttls()
+                self.server.ehlo()
+                self.server.login(self.sender_email, self.sender_password)
+                
+                logger.info("✅ Gmail SMTP connection successful!")
+                return True
+                
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"❌ Gmail authentication failed: {e}")
+                self.server = None
+                raise
+            except (socket.timeout, socket.gaierror, ConnectionRefusedError, OSError) as e:
+                logger.warning(f"⚠️  Connection attempt {attempt} failed: {type(e).__name__}: {e}")
+                self.server = None
+                
+                if attempt < self.max_retries:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Failed to connect after {self.max_retries} attempts")
+                    raise
             except Exception as e:
                 logger.error(f"❌ Unexpected error: {type(e).__name__}: {e}")
                 self.server = None
@@ -117,6 +156,9 @@ class EmailSender:
             tuple: (success: bool, message: str)
         """
         try:
+            if not self.server:
+                self.connect()
+            
             msg = MIMEMultipart()
             msg['From'] = self.sender_email
             msg['To'] = to_email
@@ -141,17 +183,25 @@ class EmailSender:
                 recipients.append(cc_email)
             
             # Send email
+            logger.info(f"Sending email to {to_email}...")
             self.server.sendmail(self.sender_email, recipients, msg.as_string())
             logger.info(f"✅ Email sent to {to_email}")
             return True, "Email sent successfully"
             
+        except (socket.timeout, socket.error, OSError) as e:
+            error_msg = f"Network error: {type(e).__name__}"
+            logger.error(f"❌ {error_msg}: {e}")
+            self.server = None
+            return False, error_msg
         except smtplib.SMTPException as e:
             error_msg = f"SMTP error: {e}"
             logger.error(f"❌ {error_msg}")
+            self.server = None
             return False, error_msg
         except Exception as e:
             error_msg = str(e)
             logger.error(f"❌ Unexpected error sending email: {error_msg}")
+            self.server = None
             return False, error_msg
     
     def send_emails_batch(self, email_list, subject, body_html, attachment_data=None, attachment_filename=None):
@@ -227,7 +277,11 @@ class EmailSender:
     
     def __enter__(self):
         """Context manager entry."""
-        self.connect()
+        try:
+            self.connect()
+        except Exception as e:
+            logger.error(f"Failed to connect in context manager: {e}")
+            raise
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
