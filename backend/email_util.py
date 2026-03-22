@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Check if we're using Brevo (production) or Gmail SMTP (development)
 USE_BREVO = os.environ.get('BREVO_API_KEY') is not None
-BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
+BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '').strip()  # Strip whitespace/newlines
 BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@monitormail.com')
 BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
