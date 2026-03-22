@@ -1,3 +1,5 @@
+from http import server
+
 import flask
 from flask import Flask, request, jsonify, send_file, g
 from flask_cors import CORS
@@ -10,6 +12,7 @@ import pdfplumber
 import re
 from io import StringIO, BytesIO
 import smtplib
+import socket
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -27,6 +30,14 @@ import uuid
 import imaplib
 import email
 from email.header import decode_header
+from email_util import EmailSender
+import logging
+
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # --- Configuration ---
 # Use a strong secret key via environment variable; fallback to a secure random value for dev.
@@ -506,273 +517,192 @@ def fetch_details():
 @app.route('/api/send-emails', methods=['POST'])
 @token_required
 def send_emails_endpoint():
-    print("API HIT: send_emails_endpoint")
+    """Send emails to individual students with proper error handling and retries."""
+    logger = logging.getLogger(__name__)
+    logger.info("API HIT: send_emails_endpoint")
 
     conn = None
     try:
-        # ✅ HANDLE BOTH JSON + FORM DATA
+        # Handle both JSON and form data
         data = None
         attachment = None
 
         if request.is_json:
             data = request.get_json()
-            print("Received JSON request")
+            logger.info("Received JSON request")
         else:
             email_payload_str = request.form.get('email_payload')
-
             if not email_payload_str:
-                print("ERROR: email_payload missing")
-                return jsonify({'success': False, 'reason': 'email_payload missing'}), 400
-
+                logger.error("email_payload missing")
+                return jsonify({'success': False, 'error': 'email_payload missing'}), 400
             try:
                 data = json.loads(email_payload_str)
             except Exception as e:
-                print("JSON ERROR:", str(e))
-                return jsonify({'success': False, 'reason': 'Invalid JSON'}), 400
-
+                logger.error(f"JSON parsing error: {e}")
+                return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
             attachment = request.files.get('attachment')
 
-        print("DATA RECEIVED:", data)
-
-        # ✅ Extract data safely
+        # Extract data safely
         email_data = data.get('email_data', [])
         sender_email = data.get('sender_email')
         sender_password = data.get('sender_password')
         teacher_email = g.current_user['user']
 
         if not sender_email or not sender_password:
-            return jsonify({'success': False, 'reason': 'Missing sender credentials'}), 400
+            return jsonify({'success': False, 'error': 'Missing sender credentials'}), 400
 
-        # ✅ Handle attachment
+        # Handle attachment
         attachment_payload = None
         attachment_filename = None
-
         if attachment:
             attachment_filename = attachment.filename
             attachment_payload = attachment.read()
 
         def clean_email(email_str):
+            """Validate email format."""
             if not email_str or not isinstance(email_str, str):
                 return None
             if '@' in email_str and '.' in email_str.split('@')[-1]:
                 return email_str.strip()
             return None
 
-        # ✅ SMTP FIX (SSL + timeout)
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
-        server.login(sender_email, sender_password)
-
         results = []
         conn = get_db_connection()
-
-        for student in email_data:
-            if not isinstance(student, dict) or 'reg_no' not in student:
-                results.append({'reg_no': 'Unknown', 'status': 'failed', 'reason': 'Invalid student data format.'})
-                continue
-
-            try:
-                msg = MIMEMultipart()
-                msg['From'] = sender_email
-                msg['Subject'] = student.get('subject', "Important: Attendance Notification")
-
-                recipients = []
-
-                student_email = clean_email(student.get('student_email'))
-                if student_email:
-                    recipients.append(student_email)
-
-                parent_email = clean_email(student.get('parent_email'))
-                if parent_email and parent_email not in recipients:
-                    recipients.append(parent_email)
-
-                if student_email:
-                    msg['To'] = student_email
-                    if parent_email:
-                        msg['Cc'] = parent_email
-                elif parent_email:
-                    msg['To'] = parent_email
-                else:
-                    results.append({'reg_no': student['reg_no'], 'status': 'failed', 'reason': 'No valid recipient emails'})
-                    continue
-
-                email_body_html = student.get('email_body', '').replace('\n', '<br>')
-                msg.attach(MIMEText(email_body_html, 'html'))
-
-                if attachment_payload and attachment_filename:
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(attachment_payload)
-                    encoders.encode_base64(part)
-                    part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
-                    msg.attach(part)
-
-                server.sendmail(sender_email, recipients, msg.as_string())
-
-                results.append({'reg_no': student['reg_no'], 'status': 'success'})
-
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO history (student_reg_no, student_name, subject, body, recipients, teacher_email) VALUES (%s, %s, %s, %s, %s, %s)",
-                        (student['reg_no'], student.get('name'), msg['Subject'], student.get('email_body', ''), ", ".join(recipients), teacher_email)
-                    )
-                conn.commit()
-
-            except Exception as e:
-                print("EMAIL ERROR:", str(e))
-                conn.rollback()
-                results.append({'reg_no': student['reg_no'], 'status': 'failed', 'reason': str(e)})
-
-        server.quit()
-        conn.close()
-
-        update_dashboard_analytics()
-
-        return jsonify({'success': True, 'results': results})
-
-    except smtplib.SMTPAuthenticationError as e:
-        print("SMTP AUTH ERROR:", str(e))
-        if conn:
-            conn.close()
-        return jsonify({'success': False, 'reason': 'Gmail authentication failed'}), 401
-
-    except Exception as e:
-        print("FINAL ERROR:", str(e))
-        if conn:
-            conn.close()
-        return jsonify({'success': False, 'reason': str(e)}), 500
-
-
-
-"""@app.route('/api/send-emails', methods=['POST'])
-@token_required
-def send_emails_endpoint():
-    print("API HIT: send_emails_endpoint")   # debug
-   
-    conn = None 
-    try:
-        email_payload_str = request.form.get('email_payload')
-        if not email_payload_str:
-            print("ERROR: email_payload is missing")
-            return jsonify({'success': False, 'reason': 'Email payload is missing.'}), 400
         
         try:
-            data = json.loads(email_payload_str)
-        except Exception as e:
-            print("JSON ERROR:", str(e))
-            return jsonify({'success': False, 'reason': 'Invalid JSON'}), 400
-        #data = json.loads(email_payload_str)
-        attachment = request.files.get('attachment')
- 
-        
-        email_data = data.get('email_data')
-        sender_email = data.get('sender_email')
-        sender_password = data.get('sender_password')
-        teacher_email = g.current_user['user']
-
-        attachment_payload = None
-        attachment_filename = None
-        if attachment:
- 
-            attachment_filename = attachment.filename
-            attachment_payload = attachment.read()
-
-        def clean_email(email_str):
-            if not email_str or not isinstance(email_str, str): return None
-            if '@' in email_str and '.' in email_str.split('@')[-1]: 
- 
-                return email_str.strip() 
-            return None
-
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
-        server.login(sender_email, sender_password)
-        results = []
-        conn = get_db_connection()
-        
-        for student in email_data:
-            if not isinstance(student, dict) or 'reg_no' not in student:
-                results.append({'reg_no': 'Unknown', 'status': 'failed', 'reason': 'Invalid student data format.'})
-             
-                continue
+            # Use EmailSender with retry logic
+            logger.info(f"Initializing EmailSender for {sender_email}")
+            email_sender = EmailSender(sender_email, sender_password, max_retries=3, timeout=30)
             
-            try:
-                msg = MIMEMultipart()
-                msg['From'] = sender_email
-              
-                msg['Subject'] = student.get('subject', "Important: Attendance Notification") 
-                
-                recipients = []
-                student_email = clean_email(student.get('student_email'))
-                if student_email: recipients.append(student_email)
-                
-                parent_email = clean_email(student.get('parent_email'))
-                if parent_email and parent_email not in recipients: recipients.append(parent_email)
-                
-   
-                if student_email:
-                    msg['To'] = student_email
-                    if parent_email:
-                    
-                        msg['Cc'] = parent_email
-                elif parent_email: 
-                     msg['To'] = parent_email
-                else: 
-             
-                    results.append({'reg_no': student['reg_no'], 'status': 'failed', 'reason': 'No valid recipient emails found.'})
+            logger.info("Connecting to SMTP server...")
+            email_sender.connect()
+            logger.info("✅ SMTP connection successful")
+
+            # Send emails
+            for idx, student in enumerate(email_data, 1):
+                if not isinstance(student, dict) or 'reg_no' not in student:
+                    results.append({
+                        'reg_no': 'Unknown',
+                        'status': 'failed',
+                        'reason': 'Invalid student data format.'
+                    })
                     continue
 
-                email_body_html = student.get('email_body', '').replace('\n', '<br>')
-                msg.attach(MIMEText(email_body_html, 'html'))
+                try:
+                    # Clean email addresses
+                    student_email = clean_email(student.get('student_email'))
+                    parent_email = clean_email(student.get('parent_email'))
 
-    
-                if attachment_payload and attachment_filename:
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(attachment_payload) 
-                  
-                    encoders.encode_base64(part)
-                    part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
-                    msg.attach(part)
+                    if not student_email and not parent_email:
+                        results.append({
+                            'reg_no': student['reg_no'],
+                            'status': 'failed',
+                            'reason': 'No valid recipient emails'
+                        })
+                        continue
 
-                server.sendmail(sender_email, recipients, msg.as_string())
-               
-                results.append({'reg_no': student['reg_no'], 'status': 'success'})
+                    # Prepare email content
+                    subject = student.get('subject', "Important: Attendance Notification")
+                    body_html = student.get('email_body', '').replace('\n', '<br>')
 
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "INSERT INTO history (student_reg_no, student_name, subject, body, recipients, teacher_email) VALUES (%s, %s, %s, %s, %s, %s)",
-                        (student['reg_no'], student.get('name'), msg['Subject'], student.get('email_body', ''), ", ".join(recipients), teacher_email)
+                    # Send email
+                    success, msg = email_sender.send_email(
+                        to_email=student_email or parent_email,
+                        subject=subject,
+                        body_html=body_html,
+                        cc_email=parent_email if student_email and parent_email else None,
+                        attachment_data=attachment_payload,
+                        attachment_filename=attachment_filename
                     )
-                conn.commit()
 
-     
-            except Exception as e:
-                print("EMAIL ERROR:", str(e))
-                conn.rollback() 
-                results.append({'reg_no': student['reg_no'], 'status': 'failed', 'reason': str(e)})
-        
-        server.quit()
+                    results.append({
+                        'reg_no': student['reg_no'],
+                        'status': 'success' if success else 'failed',
+                        'reason': msg if not success else None
+                    })
+
+                    # Log to database
+                    if success:
+                        recipients = [student_email] if student_email else []
+                        if parent_email and parent_email not in recipients:
+                            recipients.append(parent_email)
+                        
+                        with conn.cursor() as cursor:
+                            cursor.execute(
+                                "INSERT INTO history (student_reg_no, student_name, subject, body, recipients, teacher_email) VALUES (%s, %s, %s, %s, %s, %s)",
+                                (student['reg_no'], student.get('name'), subject, student.get('email_body', ''), ", ".join(recipients), teacher_email)
+                            )
+                        conn.commit()
+
+                except Exception as e:
+                    logger.error(f"Error sending to {student.get('reg_no')}: {e}")
+                    conn.rollback()
+                    results.append({
+                        'reg_no': student.get('reg_no', 'Unknown'),
+                        'status': 'failed',
+                        'reason': str(e)
+                    })
+
+                logger.info(f"Progress: {idx}/{len(email_data)}")
+
+            # Cleanup
+            email_sender.logout()
+            logger.info("✅ All emails processed")
+
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"SMTP authentication failed: {e}")
+            return jsonify({
+                'success': False,
+                'error': 'Gmail authentication failed. Verify your email and App Password (not your regular password).',
+                'results': results
+            }), 401
+        except (socket.timeout, socket.gaierror, ConnectionError) as e:
+            logger.error(f"Network error: {type(e).__name__}: {e}")
+            return jsonify({
+                'success': False,
+                'error': f'Network error: Unable to reach mail server. ({type(e).__name__}). Check your internet connection and firewall settings.',
+                'results': results
+            }), 500
+        except Exception as e:
+            logger.error(f"SMTP error: {e}")
+            return jsonify({
+                'success': False,
+                'error': f'SMTP connection failed: {str(e)}. Ensure port 587 is not blocked by your firewall.',
+                'results': results
+            }), 500
+
         conn.close()
-     
         update_dashboard_analytics()
+
         return jsonify({'success': True, 'results': results})
-    except smtplib.SMTPAuthenticationError as e:
-        print("SMTP AUTH ERROR:", str(e))   # 👈 ADD
-        if conn: conn.close()
-        return jsonify({'success': False, 'reason': 'Gmail authentication failed. Check email/App Password.'}), 401
+
     except Exception as e:
-        print("FINAL ERROR:", str(e))   # 👈 ADD THIS (MOST IMPORTANT)
-        if conn: conn.close() 
-        return jsonify({'success': False, 'reason': str(e)}), 500"""
+        logger.error(f"Unexpected error in send_emails_endpoint: {e}")
+        if conn:
+            conn.close()
+        return jsonify({'success': False, 'error': f'Unexpected error: {str(e)}'}), 500
+
 
 @app.route('/api/alert-all', methods=['POST'])
 @token_required
 def alert_all_students():
+    """Send mass alert to all students with proper error handling and retries."""
+    logger = logging.getLogger(__name__)
+    logger.info("API HIT: alert_all_students")
+
     conn = None
     try:
         alert_payload_str = request.form.get('alert_payload')
         if not alert_payload_str:
+            logger.error("alert_payload missing")
             return jsonify({'success': False, 'reason': 'Alert payload is missing.'}), 400
         
-       
-        data = json.loads(alert_payload_str)
+        try:
+            data = json.loads(alert_payload_str)
+        except Exception as e:
+            logger.error(f"JSON parsing error: {e}")
+            return jsonify({'success': False, 'reason': 'Invalid JSON'}), 400
+        
         attachment = request.files.get('attachment')
         
         sender_email = data.get('sender_email')
@@ -781,7 +711,10 @@ def alert_all_students():
         email_body = data.get('email_body', '')
         teacher_email = g.current_user['user']
 
-   
+        if not sender_email or not sender_password:
+            return jsonify({'success': False, 'reason': 'Missing sender credentials'}), 400
+
+        # Handle attachment
         attachment_payload = None
         attachment_filename = None
         if attachment:
@@ -789,99 +722,137 @@ def alert_all_students():
             attachment_payload = attachment.read()
 
         def clean_email(email_str):
-            if not email_str or not isinstance(email_str, str): return None
-            if '@' in email_str and '.' in email_str.split('@')[-1]: 
-                return email_str.strip() 
+            """Validate email format."""
+            if not email_str or not isinstance(email_str, str):
+                return None
+            if '@' in email_str and '.' in email_str.split('@')[-1]:
+                return email_str.strip()
             return None
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT "Reg.No", name, email, parent_email FROM students')
-        all_students = cursor.fetchall()
-        
-        if not all_students:
+        try:
+            # Fetch all students
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT "Reg.No", name, email, parent_email FROM students')
+            all_students = cursor.fetchall()
             cursor.close()
-            conn.close()
-           
-            return jsonify({'success': False, 'reason': 'No students found in database.'}), 404
+            
+            if not all_students:
+                conn.close()
+                logger.warning("No students found in database")
+                return jsonify({'success': False, 'reason': 'No students found in database.'}), 404
 
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
-        server.login(sender_email, sender_password)
-        results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
-        
-        for student in all_students:
-     
-            reg_no, name, student_email, parent_email = student
-            try:
-                msg = MIMEMultipart()
-                msg['From'] = sender_email
-                msg['Subject'] = subject
-                
-                recipients = []
-                s_email = clean_email(student_email)
-                p_email = clean_email(parent_email)
-      
-                if s_email: recipients.append(s_email)
-                if p_email and p_email not in recipients: recipients.append(p_email)
-                
-                if s_email:
-         
-                    msg['To'] = s_email
-                    if p_email: msg['Cc'] = p_email
-                elif p_email: 
-                     msg['To'] = p_email
-                else: 
+            logger.info(f"Found {len(all_students)} students to send alert to")
+
+            # Use EmailSender with retry logic
+            logger.info(f"Initializing EmailSender for {sender_email}")
+            email_sender = EmailSender(sender_email, sender_password, max_retries=3, timeout=30)
+            
+            logger.info("Connecting to SMTP server...")
+            email_sender.connect()
+            logger.info("✅ SMTP connection successful")
+
+            results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
+            
+            # Send emails to all students
+            for idx, student in enumerate(all_students, 1):
+                try:
+                    reg_no, name, student_email, parent_email = student
+                    
+                    # Clean email addresses
+                    s_email = clean_email(student_email)
+                    p_email = clean_email(parent_email)
+                    
+                    if not s_email and not p_email:
+                        results['fail_count'] += 1
+                        results['failed_regs'].append(reg_no)
+                        logger.warning(f"No valid email for {reg_no}")
+                        continue
+
+                    # Personalize email body
+                    body_personalized = email_body.replace('[Student Name]', name or 'Student')
+                    body_html = body_personalized.replace('\n', '<br>')
+
+                    # Send email
+                    success, msg = email_sender.send_email(
+                        to_email=s_email or p_email,
+                        subject=subject,
+                        body_html=body_html,
+                        cc_email=p_email if s_email and p_email else None,
+                        attachment_data=attachment_payload,
+                        attachment_filename=attachment_filename
+                    )
+
+                    if success:
+                        results['success_count'] += 1
+                        
+                        # Log to database
+                        recipients = [s_email] if s_email else []
+                        if p_email and p_email not in recipients:
+                            recipients.append(p_email)
+                        
+                        with conn.cursor() as log_cursor:
+                            log_cursor.execute(
+                                "INSERT INTO history (student_reg_no, student_name, subject, body, recipients, teacher_email) VALUES (%s, %s, %s, %s, %s, %s)",
+                                (reg_no, name, subject, email_body, ", ".join(recipients), teacher_email)
+                            )
+                        conn.commit()
+                    else:
+                        results['fail_count'] += 1
+                        results['failed_regs'].append(reg_no)
+                        logger.error(f"Failed to send to {reg_no}: {msg}")
+
+                except Exception as e:
+                    logger.error(f"Error sending to {student[0]}: {e}")
                     results['fail_count'] += 1
-                    results['failed_regs'].append(reg_no)
-                 
-                    continue
+                    results['failed_regs'].append(student[0])
+                    conn.rollback()
 
-                body_personalized = email_body.replace('[Student Name]', name or 'Student')
-                email_body_html = body_personalized.replace('\n', '<br>')
-                msg.attach(MIMEText(email_body_html, 'html'))
+                if idx % 10 == 0:
+                    logger.info(f"Progress: {idx}/{len(all_students)}")
 
-                
-                if attachment_payload and attachment_filename:
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(attachment_payload) 
-                    encoders.encode_base64(part)
-          
-                    part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
-                    msg.attach(part)
+            # Cleanup
+            email_sender.logout()
+            conn.close()
+            
+            logger.info(f"✅ Alert complete - Success: {results['success_count']}, Failed: {results['fail_count']}")
+            update_dashboard_analytics()
+            
+            return jsonify({'success': True, 'results': results})
 
-                server.sendmail(sender_email, recipients, msg.as_string())
-                results['success_count'] += 1
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"SMTP authentication failed: {e}")
+            if conn:
+                conn.close()
+            return jsonify({
+                'success': False,
+                'reason': 'Gmail authentication failed. Verify your email and App Password (not your regular password).',
+                'results': results
+            }), 401
+        except (socket.timeout, socket.gaierror, ConnectionError) as e:
+            logger.error(f"Network error: {type(e).__name__}: {e}")
+            if conn:
+                conn.close()
+            return jsonify({
+                'success': False,
+                'reason': f'Network error: Unable to reach mail server. ({type(e).__name__}). Check your internet connection and firewall settings.',
+                'results': results
+            }), 500
+        except Exception as e:
+            logger.error(f"SMTP error: {e}")
+            if conn:
+                conn.close()
+            return jsonify({
+                'success': False,
+                'reason': f'SMTP connection failed: {str(e)}. Ensure port 587 is not blocked by your firewall.',
+                'results': results
+            }), 500
 
-         
-                with get_db_connection() as log_conn:
-                    with log_conn.cursor() as log_cursor:
-                        log_cursor.execute(
-                    
-                            "INSERT INTO history (student_reg_no, student_name, subject, body, recipients, teacher_email) VALUES (%s, %s, %s, %s, %s, %s)",
-                            (reg_no, name, subject, email_body, ", ".join(recipients), teacher_email)
-                    
-                        )
-                        log_conn.commit()
-
-            except Exception as e:
-                print("EMAIL ERROR:", str(e))
-                results['fail_count'] += 1
-                
-                results['failed_regs'].append(reg_no)
-        
-        server.quit()
-        cursor.close()
-        conn.close()
-        update_dashboard_analytics()
-        return jsonify({'success': True, 'results': results})
-        
-    except smtplib.SMTPAuthenticationError:
-        if conn: conn.close()
-  
-        return jsonify({'success': False, 'reason': 'Gmail authentication failed. Check email/App Password.'}), 401
     except Exception as e:
-        if conn: conn.close() 
-        return jsonify({'success': False, 'reason': str(e)}), 500
+        logger.error(f"Unexpected error in alert_all_students: {e}")
+        if conn:
+            conn.close()
+        return jsonify({'success': False, 'reason': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/api/dashboard-analytics', methods=['GET'])
 @token_required

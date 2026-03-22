@@ -25,7 +25,7 @@ const request = async (endpoint, options) => {
   
             errorData = { message: response.statusText || 'An unknown API error occurred.' };
         }
-        throw new Error(errorData.message || errorData.error || 'An API error occurred.');
+        throw new Error(errorData.message || errorData.error || errorData.reason || 'An API error occurred.');
     }
     
     // Handle potential empty responses (e.g., for DELETE)
