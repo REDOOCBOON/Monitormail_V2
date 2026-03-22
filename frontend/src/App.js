@@ -147,8 +147,6 @@ const massAlertModalStyle = { ...modalBaseStyle, width: '60vw', maxWidth: 800 };
 
 // --- EmailModal (for Workflow) ---
 const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, templates, title, setDisplayData, setSnackbar }) => { 
-    const [senderEmail, setSenderEmail] = useState('');
-    const [senderPassword, setSenderPassword] = useState('');
     const [emailBodies, setEmailBodies] = useState({});
     const [attachment, setAttachment] = useState(null);
     const [singleSendLoading, 
@@ -223,8 +221,6 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
         setProgress(0);
         const validStudents = Array.isArray(data) ? data.filter(student => student && student.reg_no) : [];
         const payload = { 
-            sender_email: senderEmail, 
-            sender_password: senderPassword, 
             email_data: validStudents.map(student => 
                 ({ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" })) 
         };
@@ -247,8 +243,6 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
         if(!student || !student.reg_no) return; 
         setSingleSendLoading(student.reg_no);
         const payload = { 
-            sender_email: senderEmail, 
-            sender_password: senderPassword, 
             email_data: [{ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" }] 
         };
         await onSendSingle(payload, attachment, student.reg_no);
@@ -278,16 +272,15 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}><Typography variant="h6">{title || 'Review & Send Emails'}</Typography><IconButton onClick={onClose}><CloseIcon /></IconButton></Box>
        
                     <Grid container spacing={2} sx={{ mb: 2 }}>
-                        <Grid item xs={12} sm={4}><TextField fullWidth label="Your Gmail Address" value={senderEmail} onChange={e => setSenderEmail(e.target.value)} disabled={isSendingAll} /></Grid>
-                     
-                        <Grid item xs={12} sm={4}>
-                            <TextField fullWidth type="password" label="Your Google App Password" value={senderPassword} onChange={e => setSenderPassword(e.target.value)} helperText="Use a Google App Password." disabled={isSendingAll} />
-                            <Button size="small" sx={{ mt: 1 }} onClick={() => window.open('/gmail-app-password-guide.md', '_blank')}>
-                                How to get an App Password
-                            </Button>
+                        <Grid item xs={12} sm={6}>
+                            <Typography variant="body2" color="primary" sx={{ mb: 1, fontWeight: 600 }}>
+                                ✅ Emails will be sent via Brevo Relay
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                No additional credentials needed. System uses configured Brevo SMTP.
+                            </Typography>
                         </Grid>
-                        <Grid item xs={12} sm={4}>
-                           
+                        <Grid item xs={12} sm={6}>
                             <FormControl fullWidth>
                                 <InputLabel>Select Template</InputLabel>
                                 <Select label="Select Template" onChange={e => handleTemplateChange(e.target.value)} defaultValue="">
@@ -439,17 +432,12 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
 // --- Mass Alert Modal ---
 const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
     // 
-    const [senderEmail, setSenderEmail] = useState('');
-    const [senderPassword, setSenderPassword] = useState('');
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
     const [attachment, setAttachment] = useState(null);
 
     useEffect(() => {
         if (open) {
-            setSenderEmail('');
-            setSenderPassword('');
-      
             setSubject('');
             setBody('');
             setAttachment(null);
@@ -468,8 +456,6 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
 
     const handleSend = () => {
         const payload = {
-            sender_email: senderEmail,
-            sender_password: senderPassword,
             subject: subject,
         
             email_body: body
@@ -488,12 +474,10 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
                             onClick={onClose}><CloseIcon /></IconButton>
                     </Box>
                     <Grid container spacing={2}>
-                        <Grid item xs={12} sm={6}><TextField fullWidth label="Your Gmail Address" value={senderEmail} onChange={e => setSenderEmail(e.target.value)} disabled={loading} /></Grid>
-                        <Grid item xs={12} sm={6}>
-                            <TextField fullWidth type="password" label="Your Google App Password" value={senderPassword} onChange={e => setSenderPassword(e.target.value)} helperText="Use a Google App Password." disabled={loading} />
-                            <Button size="small" sx={{ mt: 1 }} onClick={() => window.open('/gmail-app-password-guide.md', '_blank')}>
-                                How to get an App Password
-                            </Button>
+                        <Grid item xs={12}>
+                            <Typography variant="body2" color="primary" sx={{ mb: 1, fontWeight: 600 }}>
+                                ✅ Emails will be sent via Brevo Relay (no credentials needed)
+                            </Typography>
                         </Grid>
                         <Grid item xs={12} sm={6}><TextField fullWidth label="Subject" 
                             value={subject} onChange={e => setSubject(e.target.value)} disabled={loading} /></Grid>
@@ -523,7 +507,7 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
                 
                         {attachment && <Typography variant="body2" noWrap sx={{maxWidth: '200px'}}>{attachment.name}</Typography>}
                         <Box flexGrow={1} />
-                        <Button onClick={handleSend} variant="contained" disabled={loading || !senderEmail || !senderPassword || !subject || !body}>
+                        <Button onClick={handleSend} variant="contained" disabled={loading || !subject || !body}>
   
                             {loading ? <CircularProgress size={24} /> : 'Send to All Students'}
                         </Button>

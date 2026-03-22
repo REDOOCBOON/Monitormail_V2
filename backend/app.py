@@ -517,7 +517,7 @@ def fetch_details():
 @app.route('/api/send-emails', methods=['POST'])
 @token_required
 def send_emails_endpoint():
-    """Send emails to individual students with proper error handling and retries."""
+    """Send emails to individual students using Brevo SMTP relay."""
     logger = logging.getLogger(__name__)
     logger.info("API HIT: send_emails_endpoint")
 
@@ -544,12 +544,9 @@ def send_emails_endpoint():
 
         # Extract data safely
         email_data = data.get('email_data', [])
-        sender_email = data.get('sender_email')
-        sender_password = data.get('sender_password')
-        teacher_email = g.current_user['user']
+        teacher_email = g.current_user['user']  # Use logged-in teacher's email
 
-        if not sender_email or not sender_password:
-            return jsonify({'success': False, 'error': 'Missing sender credentials'}), 400
+        logger.info(f"Teacher email (from login): {teacher_email}")
 
         # Handle attachment
         attachment_payload = None
@@ -570,13 +567,13 @@ def send_emails_endpoint():
         conn = get_db_connection()
         
         try:
-            # Use EmailSender with retry logic
-            logger.info(f"Initializing EmailSender for {sender_email}")
-            email_sender = EmailSender(sender_email, sender_password, max_retries=3, timeout=30)
+            # Use EmailSender with Brevo (auto-detected from environment variables)
+            logger.info(f"Initializing EmailSender for {teacher_email}")
+            email_sender = EmailSender(sender_email=teacher_email, sender_password=None, max_retries=3, timeout=30)
             
-            logger.info("Connecting to SMTP server...")
+            logger.info("Connecting to Brevo SMTP server...")
             email_sender.connect()
-            logger.info("✅ SMTP connection successful")
+            logger.info("✅ Brevo SMTP connection successful")
 
             # Send emails
             for idx, student in enumerate(email_data, 1):
@@ -640,34 +637,34 @@ def send_emails_endpoint():
                     results.append({
                         'reg_no': student.get('reg_no', 'Unknown'),
                         'status': 'failed',
-                        'reason': str(e)
+                        'reason': str(e)[:100]
                     })
 
                 logger.info(f"Progress: {idx}/{len(email_data)}")
 
             # Cleanup
             email_sender.logout()
-            logger.info("✅ All emails processed")
+            logger.info("✅ All emails processed successfully")
 
         except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"SMTP authentication failed: {e}")
+            logger.error(f"Brevo authentication failed: {e}")
             return jsonify({
                 'success': False,
-                'error': 'Gmail authentication failed. Verify your email and App Password (not your regular password).',
+                'error': 'Email service authentication failed. Check Brevo configuration.',
                 'results': results
             }), 401
         except (socket.timeout, socket.gaierror, ConnectionError) as e:
             logger.error(f"Network error: {type(e).__name__}: {e}")
             return jsonify({
                 'success': False,
-                'error': f'Network error: Unable to reach mail server. ({type(e).__name__}). Check your internet connection and firewall settings.',
+                'error': f'Network error: Unable to reach email server. Check your internet connection.',
                 'results': results
             }), 500
         except Exception as e:
             logger.error(f"SMTP error: {e}")
             return jsonify({
                 'success': False,
-                'error': f'SMTP connection failed: {str(e)}. Ensure port 587 is not blocked by your firewall.',
+                'error': f'Email service error: {str(e)[:100]}',
                 'results': results
             }), 500
 
@@ -680,13 +677,13 @@ def send_emails_endpoint():
         logger.error(f"Unexpected error in send_emails_endpoint: {e}")
         if conn:
             conn.close()
-        return jsonify({'success': False, 'error': f'Unexpected error: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': f'Unexpected error: {str(e)[:100]}'}), 500
 
 
 @app.route('/api/alert-all', methods=['POST'])
 @token_required
 def alert_all_students():
-    """Send mass alert to all students with proper error handling and retries."""
+    """Send mass alert to all students using Brevo SMTP relay."""
     logger = logging.getLogger(__name__)
     logger.info("API HIT: alert_all_students")
 
@@ -705,14 +702,11 @@ def alert_all_students():
         
         attachment = request.files.get('attachment')
         
-        sender_email = data.get('sender_email')
-        sender_password = data.get('sender_password')
         subject = data.get('subject', 'Important Notification')
         email_body = data.get('email_body', '')
-        teacher_email = g.current_user['user']
+        teacher_email = g.current_user['user']  # Use logged-in teacher's email
 
-        if not sender_email or not sender_password:
-            return jsonify({'success': False, 'reason': 'Missing sender credentials'}), 400
+        logger.info(f"Teacher email (from login): {teacher_email}")
 
         # Handle attachment
         attachment_payload = None
@@ -744,13 +738,13 @@ def alert_all_students():
 
             logger.info(f"Found {len(all_students)} students to send alert to")
 
-            # Use EmailSender with retry logic
-            logger.info(f"Initializing EmailSender for {sender_email}")
-            email_sender = EmailSender(sender_email, sender_password, max_retries=3, timeout=30)
+            # Use EmailSender with Brevo (auto-detected from environment variables)
+            logger.info(f"Initializing EmailSender for {teacher_email}")
+            email_sender = EmailSender(sender_email=teacher_email, sender_password=None, max_retries=3, timeout=30)
             
-            logger.info("Connecting to SMTP server...")
+            logger.info("Connecting to Brevo SMTP server...")
             email_sender.connect()
-            logger.info("✅ SMTP connection successful")
+            logger.info("✅ Brevo SMTP connection successful")
 
             results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
             
@@ -801,6 +795,56 @@ def alert_all_students():
                         results['fail_count'] += 1
                         results['failed_regs'].append(reg_no)
                         logger.error(f"Failed to send to {reg_no}: {msg}")
+
+                except Exception as e:
+                    logger.error(f"Error sending to {student[0]}: {e}")
+                    results['fail_count'] += 1
+                    results['failed_regs'].append(student[0])
+                    conn.rollback()
+
+                if idx % 10 == 0:
+                    logger.info(f"Progress: {idx}/{len(all_students)}")
+
+            # Cleanup
+            email_sender.logout()
+            conn.close()
+            
+            logger.info(f"✅ Alert complete - Success: {results['success_count']}, Failed: {results['fail_count']}")
+            update_dashboard_analytics()
+            
+            return jsonify({'success': True, 'results': results})
+
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"Brevo authentication failed: {e}")
+            if conn:
+                conn.close()
+            return jsonify({
+                'success': False,
+                'reason': 'Email service authentication failed. Check Brevo configuration.',
+                'results': results
+            }), 401
+        except (socket.timeout, socket.gaierror, ConnectionError) as e:
+            logger.error(f"Network error: {type(e).__name__}: {e}")
+            if conn:
+                conn.close()
+            return jsonify({
+                'success': False,
+                'reason': f'Network error: Unable to reach email server. Check your internet connection.',
+                'results': results
+            }), 500
+        except Exception as e:
+            logger.error(f"SMTP error: {e}")
+            if conn:
+                conn.close()
+            return jsonify({
+                'success': False,
+                'reason': f'Email service error: {str(e)[:100]}',
+                'results': results
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Unexpected error in alert_all_students: {e}")
+        if conn:
 
                 except Exception as e:
                     logger.error(f"Error sending to {student[0]}: {e}")
