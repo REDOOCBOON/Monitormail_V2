@@ -845,58 +845,8 @@ def alert_all_students():
     except Exception as e:
         logger.error(f"Unexpected error in alert_all_students: {e}")
         if conn:
-
-                except Exception as e:
-                    logger.error(f"Error sending to {student[0]}: {e}")
-                    results['fail_count'] += 1
-                    results['failed_regs'].append(student[0])
-                    conn.rollback()
-
-                if idx % 10 == 0:
-                    logger.info(f"Progress: {idx}/{len(all_students)}")
-
-            # Cleanup
-            email_sender.logout()
             conn.close()
-            
-            logger.info(f"✅ Alert complete - Success: {results['success_count']}, Failed: {results['fail_count']}")
-            update_dashboard_analytics()
-            
-            return jsonify({'success': True, 'results': results})
-
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"SMTP authentication failed: {e}")
-            if conn:
-                conn.close()
-            return jsonify({
-                'success': False,
-                'reason': 'Gmail authentication failed. Verify your email and App Password (not your regular password).',
-                'results': results
-            }), 401
-        except (socket.timeout, socket.gaierror, ConnectionError) as e:
-            logger.error(f"Network error: {type(e).__name__}: {e}")
-            if conn:
-                conn.close()
-            return jsonify({
-                'success': False,
-                'reason': f'Network error: Unable to reach mail server. ({type(e).__name__}). Check your internet connection and firewall settings.',
-                'results': results
-            }), 500
-        except Exception as e:
-            logger.error(f"SMTP error: {e}")
-            if conn:
-                conn.close()
-            return jsonify({
-                'success': False,
-                'reason': f'SMTP connection failed: {str(e)}. Ensure port 587 is not blocked by your firewall.',
-                'results': results
-            }), 500
-
-    except Exception as e:
-        logger.error(f"Unexpected error in alert_all_students: {e}")
-        if conn:
-            conn.close()
-        return jsonify({'success': False, 'reason': f'Unexpected error: {str(e)}'}), 500
+        return jsonify({'success': False, 'reason': f'Unexpected error: {str(e)[:100]}'}), 500
 
 @app.route('/api/dashboard-analytics', methods=['GET'])
 @token_required
