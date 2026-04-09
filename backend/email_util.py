@@ -18,10 +18,14 @@ from email import encoders
 logger = logging.getLogger(__name__)
 
 # Check if we're using Brevo (production) or Gmail SMTP (development)
-USE_BREVO = os.environ.get('BREVO_API_KEY') is not None
+USE_BREVO = os.environ.get('BREVO_API_KEY') is not None and bool(os.environ.get('BREVO_API_KEY', '').strip())
 BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '').strip()  # Strip whitespace/newlines
 BREVO_FROM_EMAIL = os.environ.get('BREVO_FROM_EMAIL', 'noreply@monitormail.com')
 BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
+
+# Log configuration on startup
+if not USE_BREVO:
+    logger.info("📧 Brevo API key not configured. Defaulting to Gmail SMTP for email sending.")
 
 class EmailSender:
     """Handles email sending with Brevo API (production) or Gmail SMTP (development)."""
@@ -137,6 +141,11 @@ class EmailSender:
     
     def _connect_gmail(self):
         """Connect to Gmail SMTP (for local development only)."""
+        # Check if password is available
+        if not self.sender_password:
+            logger.error("❌ Gmail SMTP requires sender_password. None provided.")
+            raise ValueError("Gmail SMTP password is required but not provided.")
+        
         for attempt in range(1, self.max_retries + 1):
             try:
                 logger.info(f"[Attempt {attempt}/{self.max_retries}] Connecting to Gmail SMTP...")
@@ -195,6 +204,11 @@ class EmailSender:
                 return self._send_via_brevo_api(to_email, subject, body_html, cc_email, attachment_data, attachment_filename)
             
             # Fall back to Gmail SMTP for development
+            # Check if we have credentials before trying to connect
+            if not self.sender_password:
+                logger.error("❌ No email credentials available. Set BREVO_API_KEY environment variable or configure Gmail credentials.")
+                return False, "Email service not properly configured. No credentials available."
+            
             if not self.server:
                 self.connect()
             
@@ -209,12 +223,24 @@ class EmailSender:
             msg.attach(MIMEText(body_html, 'html'))
             
             # Attach file if provided
-            if attachment_data and attachment_filename:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(attachment_data)
-                encoders.encode_base64(part)
-                part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
-                msg.attach(part)
+            if attachment_filename and attachment_data:
+                try:
+                    part = MIMEBase('application', 'octet-stream')
+                    # Ensure attachment_data is bytes
+                    if isinstance(attachment_data, str):
+                        attachment_data = attachment_data.encode('utf-8')
+                    elif attachment_data is None:
+                        logger.warning(f"Attachment data is None, skipping attachment")
+                        attachment_data = None
+                    
+                    if attachment_data:  # Only attach if we have data
+                        part.set_payload(attachment_data)
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
+                        msg.attach(part)
+                except Exception as attach_err:
+                    logger.warning(f"Failed to attach file: {attach_err}. Continuing without attachment.")
+                    # Continue sending email even if attachment fails
             
             # Determine recipients
             recipients = [to_email]

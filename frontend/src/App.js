@@ -631,9 +631,7 @@ function App() {
 
     useEffect(() => {
         if (token) {
-if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTemplates(); 
-            if (view === 'templates') fetchTemplates();
-            
+            if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTemplates();
             if (view === 'dashboard') fetchAnalytics();
             if (view === 'history') fetchHistory();
             if (view === 'teachers') fetchTeachers();
@@ -1060,16 +1058,16 @@ if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTempla
                                 <Paper sx={{ p: 3, borderRadius: 2 }}>
                  
                                     <Typography variant="h5" gutterBottom>Step 2: Fetch Student Details</Typography>
-                                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
       
                                         <Button variant="contained" onClick={handleListAll} disabled={!intermediateCsv || isFetchingDetails || isProcessingPdf}>{isFetchingDetails ? <CircularProgress size={24} /> : 'List All Students (from PDF)'}</Button>
                           
                                         <Button variant="contained" onClick={handleListLow} disabled={!intermediateCsv || isFetchingDetails || isProcessingPdf}>{isFetchingDetails ? <CircularProgress size={24} /> : 'List Low Attendance (&lt;75%)'}</Button>
                                     </Box>
-           
+
                                 </Paper>
                             </Grid>
-                            
+
                             <Grid item xs={12}>
                                 <Paper sx={{ p: 3, borderRadius: 2, display: 'flex', flexDirection: 'column' }}>
                                  
@@ -1124,7 +1122,7 @@ if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTempla
                                 </Paper>
                             </Grid>
                       
-                        </Grid> 
+                        </Grid>
                      )}
 
                      {view === 'alert' && ( 
@@ -1389,8 +1387,7 @@ if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTempla
                 templates={templates} 
              />
 
-             {/* Template 
-                 Modal */}
+             {/* Template Modal */}
              <Modal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500, sx: { backgroundColor: '#000' } }}>
                   <Fade in={templateModalOpen}>
                      <Box sx={editModalStyle}>
@@ -1405,8 +1402,7 @@ if (view === 'templates' || view === 'alert' || view === 'workflow') fetchTempla
                  </Fade>
              </Modal>
              
-             {/* Management Edit Modal (for 
-                 BOTH types) */}
+             {/* Management Edit Modal (for BOTH types) */}
              <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} closeAfterTransition BackdropComponent={Backdrop} BackdropProps={{ timeout: 500, sx: { backgroundColor: '#000' } }}>
                   <Fade in={editModalOpen}>
                      <Box sx={{...editModalStyle, overflowY: 'auto'}}> 

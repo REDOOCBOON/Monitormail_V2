@@ -1,5 +1,5 @@
-// const API_URL = "http://127.0.0.1:5000"; // Local backend for development
-const API_URL = process.env.REACT_APP_API_URL || "https://monitormail-api.onrender.com";
+const API_URL = process.env.REACT_APP_API_URL || "http://127.0.0.1:5000"; // Local backend for development
+// const PROD_API_URL = "https://monitormail-api.onrender.com"; // Production backend
 
 
 const request = async (endpoint, options) => {

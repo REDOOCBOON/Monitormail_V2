@@ -571,9 +571,28 @@ def send_emails_endpoint():
             logger.info(f"Initializing EmailSender for {teacher_email}")
             email_sender = EmailSender(sender_email=teacher_email, sender_password=None, max_retries=3, timeout=30)
             
-            logger.info("Connecting to Brevo SMTP server...")
-            email_sender.connect()
-            logger.info("✅ Brevo SMTP connection successful")
+            # Check if we have proper email configuration
+            if not email_sender.use_brevo and not os.environ.get('GMAIL_PASSWORD'):
+                logger.error("Email service not configured: Set BREVO_API_KEY for production or GMAIL_PASSWORD for development")
+                return jsonify({
+                    'success': False,
+                    'error': 'Email service not configured. Contact administrator.',
+                    'results': []
+                }), 500
+            
+            # Connect only if not using Brevo API (Brevo doesn't need connection)
+            if not email_sender.use_brevo:
+                logger.info("Connecting to Gmail SMTP server...")
+                try:
+                    email_sender.connect()
+                    logger.info("✅ Gmail SMTP connection successful")
+                except Exception as e:
+                    logger.error(f"❌ Failed to connect to Gmail: {e}")
+                    return jsonify({
+                        'success': False,
+                        'error': f'Email service connection failed: {str(e)[:100]}',
+                        'results': []
+                    }), 500
 
             # Send emails
             for idx, student in enumerate(email_data, 1):
@@ -602,12 +621,21 @@ def send_emails_endpoint():
                     subject = student.get('subject', "Important: Attendance Notification")
                     body_html = student.get('email_body', '').replace('\n', '<br>')
 
-                    # Send email
+                    # Send email with teacher as CC
+                    # Build CC list: include parent email and teacher email
+                    cc_addresses = []
+                    if parent_email and parent_email != student_email:
+                        cc_addresses.append(parent_email)
+                    if teacher_email and teacher_email != student_email and teacher_email != parent_email:
+                        cc_addresses.append(teacher_email)
+                    
+                    cc_email = ', '.join(cc_addresses) if cc_addresses else None
+                    
                     success, msg = email_sender.send_email(
                         to_email=student_email or parent_email,
                         subject=subject,
                         body_html=body_html,
-                        cc_email=parent_email if student_email and parent_email else None,
+                        cc_email=cc_email,
                         attachment_data=attachment_payload,
                         attachment_filename=attachment_filename
                     )
@@ -742,9 +770,26 @@ def alert_all_students():
             logger.info(f"Initializing EmailSender for {teacher_email}")
             email_sender = EmailSender(sender_email=teacher_email, sender_password=None, max_retries=3, timeout=30)
             
-            logger.info("Connecting to Brevo SMTP server...")
-            email_sender.connect()
-            logger.info("✅ Brevo SMTP connection successful")
+            # Check if we have proper email configuration
+            if not email_sender.use_brevo and not os.environ.get('GMAIL_PASSWORD'):
+                logger.error("Email service not configured: Set BREVO_API_KEY for production or GMAIL_PASSWORD for development")
+                return jsonify({
+                    'success': False,
+                    'reason': 'Email service not configured. Contact administrator.'
+                }), 500
+            
+            # Connect only if not using Brevo API (Brevo doesn't need connection)
+            if not email_sender.use_brevo:
+                logger.info("Connecting to Gmail SMTP server...")
+                try:
+                    email_sender.connect()
+                    logger.info("✅ Gmail SMTP connection successful")
+                except Exception as e:
+                    logger.error(f"❌ Failed to connect to Gmail: {e}")
+                    return jsonify({
+                        'success': False,
+                        'reason': f'Email service connection failed: {str(e)[:100]}'
+                    }), 500
 
             results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
             
@@ -767,12 +812,21 @@ def alert_all_students():
                     body_personalized = email_body.replace('[Student Name]', name or 'Student')
                     body_html = body_personalized.replace('\n', '<br>')
 
+                    # Build CC list: include parent email and teacher email
+                    cc_addresses = []
+                    if p_email and p_email != s_email:
+                        cc_addresses.append(p_email)
+                    if teacher_email and teacher_email != s_email and teacher_email != p_email:
+                        cc_addresses.append(teacher_email)
+                    
+                    cc_email = ', '.join(cc_addresses) if cc_addresses else None
+
                     # Send email
                     success, msg = email_sender.send_email(
                         to_email=s_email or p_email,
                         subject=subject,
                         body_html=body_html,
-                        cc_email=p_email if s_email and p_email else None,
+                        cc_email=cc_email,
                         attachment_data=attachment_payload,
                         attachment_filename=attachment_filename
                     )
