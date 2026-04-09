@@ -51,6 +51,10 @@ class EmailSender:
         
         if self.use_brevo:
             logger.info(f"📧 Configured for Brevo REST API (production - HTTP-based)")
+            if not BREVO_FROM_EMAIL or BREVO_FROM_EMAIL == 'noreply@monitormail.com':
+                logger.warning(f"⚠️  WARNING: BREVO_FROM_EMAIL is using default '{BREVO_FROM_EMAIL}'")
+                logger.warning(f"   This email MUST be verified in your Brevo account for emails to send!")
+                logger.warning(f"   Set BREVO_FROM_EMAIL environment variable to a verified email address in Brevo")
         else:
             logger.info(f"📧 Configured for Gmail SMTP (development mode)")
     
@@ -70,10 +74,16 @@ class EmailSender:
             'content-type': 'application/json'
         }
         
+        # CRITICAL: Use verified BREVO_FROM_EMAIL (configured in Brevo account)
+        # The self.sender_email (teacher email) is NOT verified in Brevo and will be rejected
+        # We must use the confirmed sender email from Brevo
+        sender_email = BREVO_FROM_EMAIL
+        sender_name = 'MonitorMail' if sender_email == BREVO_FROM_EMAIL else f'MonitorMail ({self.sender_email})'
+        
         payload = {
             'sender': {
-                'name': 'MonitorMail',
-                'email': self.sender_email
+                'name': sender_name,
+                'email': sender_email
             },
             'to': [{'email': to_email}],
             'subject': subject,
@@ -89,6 +99,9 @@ class EmailSender:
         for attempt in range(1, self.max_retries + 1):
             try:
                 logger.info(f"[Attempt {attempt}/{self.max_retries}] Sending via Brevo API to {to_email}...")
+                logger.debug(f"   From: {sender_email}")
+                if cc_email:
+                    logger.debug(f"   CC: {cc_email}")
                 response = requests.post(BREVO_API_URL, json=payload, headers=headers, timeout=self.timeout)
                 
                 if response.status_code in (200, 201):

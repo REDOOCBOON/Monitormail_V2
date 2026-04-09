@@ -571,6 +571,13 @@ def send_emails_endpoint():
             logger.info(f"Initializing EmailSender for {teacher_email}")
             email_sender = EmailSender(sender_email=teacher_email, sender_password=None, max_retries=3, timeout=30)
             
+            # Log which sender email will be used
+            from email_util import BREVO_FROM_EMAIL, USE_BREVO
+            if USE_BREVO:
+                logger.info(f"📧 Using Brevo API with sender: {BREVO_FROM_EMAIL}")
+                if BREVO_FROM_EMAIL == 'noreply@monitormail.com':
+                    logger.warning(f"⚠️  WARNING: Using default sender email - ensure it's verified in Brevo!")
+            
             # Check if we have proper email configuration
             if not email_sender.use_brevo and not os.environ.get('GMAIL_PASSWORD'):
                 logger.error("Email service not configured: Set BREVO_API_KEY for production or GMAIL_PASSWORD for development")
