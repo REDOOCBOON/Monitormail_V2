@@ -146,7 +146,7 @@ const massAlertModalStyle = { ...modalBaseStyle, width: '60vw', maxWidth: 800 };
 
 
 // --- EmailModal (for Workflow) ---
-const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, templates, title, setDisplayData, setSnackbar }) => { 
+const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, templates, title, setDisplayData, setSnackbar, user }) => { 
     const [emailBodies, setEmailBodies] = useState({});
     const [attachment, setAttachment] = useState(null);
     const [singleSendLoading, 
@@ -154,6 +154,7 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
     const [searchQuery, setSearchQuery] = useState('');
     const [isSendingAll, setIsSendingAll] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [gmailAppPassword, setGmailAppPassword] = useState('');
 
     const generateEmailBody = (templateBody, student) => {
         const subjects = student?.subjects || []; 
@@ -195,6 +196,7 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
             setSearchQuery('');
             setIsSendingAll(false);
             setProgress(0);
+            setGmailAppPassword('');
  
         }
     }, [data, open, templates]);
@@ -217,12 +219,17 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
     const handleAttachmentChange = (e) => setAttachment(e.target.files[0]);
 
     const handleSendAll = async () => {
+        if (!gmailAppPassword || gmailAppPassword.trim() === '') {
+            setSnackbar({ open: true, message: 'Please enter your Gmail app password', severity: 'error' });
+            return;
+        }
         setIsSendingAll(true);
         setProgress(0);
         const validStudents = Array.isArray(data) ? data.filter(student => student && student.reg_no) : [];
         const payload = { 
             email_data: validStudents.map(student => 
-                ({ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" })) 
+                ({ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" })),
+            gmail_app_password: gmailAppPassword
         };
         const timer = setInterval(() => { setProgress(p => p >= 90 ? 90 : p + 10); }, 300);
         try {
@@ -240,10 +247,15 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
     };
     const handleSendSingle = async (student) => {
       
-        if(!student || !student.reg_no) return; 
+        if(!student || !student.reg_no) return;
+        if (!gmailAppPassword || gmailAppPassword.trim() === '') {
+            setSnackbar({ open: true, message: 'Please enter your Gmail app password', severity: 'error' });
+            return;
+        }
         setSingleSendLoading(student.reg_no);
         const payload = { 
-            email_data: [{ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" }] 
+            email_data: [{ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" }],
+            gmail_app_password: gmailAppPassword
         };
         await onSendSingle(payload, attachment, student.reg_no);
         setSingleSendLoading(null);
@@ -274,10 +286,10 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
                     <Grid container spacing={2} sx={{ mb: 2 }}>
                         <Grid item xs={12} sm={6}>
                             <Typography variant="body2" color="primary" sx={{ mb: 1, fontWeight: 600 }}>
-                                ✅ Emails will be sent via Brevo Relay
+                                📧 Emails will be sent via your Gmail account
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                                No additional credentials needed. System uses configured Brevo SMTP.
+                                Sending as: <strong>{user?.email || 'Your Email'}</strong>
                             </Typography>
                         </Grid>
                         <Grid item xs={12} sm={6}>
@@ -289,6 +301,22 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
                                 </Select>
          
                             </FormControl>
+                        </Grid>
+                    </Grid>
+
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                        <Grid item xs={12}>
+                            <TextField 
+                                fullWidth 
+                                label="Gmail App Password" 
+                                variant="outlined" 
+                                type="password"
+                                value={gmailAppPassword} 
+                                onChange={e => setGmailAppPassword(e.target.value)}
+                                disabled={isSendingAll}
+                                placeholder="Enter your 16-character Gmail app password"
+                                helperText="Get this from: Google Account → Security → App Passwords"
+                            />
                         </Grid>
                     </Grid>
               
@@ -430,17 +458,19 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
 };
 
 // --- Mass Alert Modal ---
-const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
+const MassAlertModal = ({ open, onClose, onSend, loading, templates, user }) => {
     // 
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
     const [attachment, setAttachment] = useState(null);
+    const [gmailAppPassword, setGmailAppPassword] = useState('');
 
     useEffect(() => {
         if (open) {
             setSubject('');
             setBody('');
             setAttachment(null);
+            setGmailAppPassword('');
         }
     }, [open]);
 
@@ -455,10 +485,14 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
     const handleAttachmentChange = (e) => setAttachment(e.target.files[0]);
 
     const handleSend = () => {
+        if (!gmailAppPassword || gmailAppPassword.trim() === '') {
+            alert('Please enter your Gmail app password');
+            return;
+        }
         const payload = {
             subject: subject,
-        
-            email_body: body
+            email_body: body,
+            gmail_app_password: gmailAppPassword
         };
         onSend(payload, attachment);
     };
@@ -476,7 +510,10 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
                     <Grid container spacing={2}>
                         <Grid item xs={12}>
                             <Typography variant="body2" color="primary" sx={{ mb: 1, fontWeight: 600 }}>
-                                ✅ Emails will be sent via Brevo Relay (no credentials needed)
+                                📧 Emails will be sent via your Gmail account
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                Sending as: <strong>{user?.email || 'Your Email'}</strong>
                             </Typography>
                         </Grid>
                         <Grid item xs={12} sm={6}><TextField fullWidth label="Subject" 
@@ -493,6 +530,18 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
                             </FormControl>
                         </Grid>
                         <Grid item xs={12}>
+                            <TextField 
+                                fullWidth 
+                                label="Gmail App Password" 
+                                type="password"
+                                value={gmailAppPassword}
+                                onChange={e => setGmailAppPassword(e.target.value)}
+                                disabled={loading}
+                                placeholder="Enter your 16-character Gmail app password"
+                                helperText="Get this from: Google Account → Security → App Passwords"
+                            />
+                        </Grid>
+                        <Grid item xs={12}>
                          
                             <TextField fullWidth multiline rows={10} label="Email Body" value={body} onChange={e => setBody(e.target.value)} className="email-body-textarea" helperText="Use [Student Name] as a placeholder for personalization." disabled={loading} />
                         </Grid>
@@ -507,7 +556,7 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates }) => {
                 
                         {attachment && <Typography variant="body2" noWrap sx={{maxWidth: '200px'}}>{attachment.name}</Typography>}
                         <Box flexGrow={1} />
-                        <Button onClick={handleSend} variant="contained" disabled={loading || !subject || !body}>
+                        <Button onClick={handleSend} variant="contained" disabled={loading || !subject || !body || !gmailAppPassword}>
   
                             {loading ? <CircularProgress size={24} /> : 'Send to All Students'}
                         </Button>
@@ -941,6 +990,16 @@ function App() {
                                             <Typography variant="body2" color="text.secondary">\
                                                 Here are your latest stats. Use the tabs above to jump to any section.
                                             </Typography>
+                                            <Box sx={{ mt: 2 }}>
+                                                <Link
+                                                    href="/public/gmail-app-password-guide.md"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    sx={{ color: 'primary.main', textDecoration: 'none', fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}
+                                                >
+                                                    📧 How to Set Up Gmail App Password?
+                                                </Link>
+                                            </Box>
                                         </Box>
                                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                                             <Button variant="contained" size="small" onClick={() => setView('workflow')}>
@@ -1373,7 +1432,7 @@ function App() {
              </Box>
         
              {/* Workflow Email Modal */}
-             <EmailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} data={displayData} onSendAll={handleSendAllEmails} onSendSingle={handleSendSingleEmail} loading={loading} templates={templates} title="Review & Send Emails" />
+             <EmailModal open={isModalOpen} onClose={() => setIsModalOpen(false)} data={displayData} onSendAll={handleSendAllEmails} onSendSingle={handleSendSingleEmail} loading={loading} templates={templates} title="Review & Send Emails" user={user} setDisplayData={setDisplayData} setSnackbar={setSnackbar} />
              
              
 
@@ -1384,7 +1443,8 @@ function App() {
  
                 onSend={handleSendMassAlert}
                 loading={isSendingAlert} 
-                templates={templates} 
+                templates={templates}
+                user={user}
              />
 
              {/* Template Modal */}

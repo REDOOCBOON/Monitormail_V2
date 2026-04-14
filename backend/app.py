@@ -108,8 +108,9 @@ def set_security_headers(response):
     return response
 
 # --- Configuration ---
-# Use a strong secret key via environment variable; fallback to a secure random value for dev.
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_urlsafe(32)
+# Use a strong secret key via environment variable; fallback to fixed dev key
+# IMPORTANT: Don't use random key locally - it breaks existing tokens when backend restarts
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or 'dev-secret-key-monitormail-local'
 
 # Restrict CORS to a trusted frontend origin (set FRONTEND_ORIGIN in your environment).
 FRONTEND_ORIGIN = os.environ.get('FRONTEND_ORIGIN', 'http://localhost:3000')
@@ -517,7 +518,7 @@ def fetch_details():
 @app.route('/api/send-emails', methods=['POST'])
 @token_required
 def send_emails_endpoint():
-    """Send emails to individual students using Brevo SMTP relay."""
+    """Send emails to individual students using their Gmail account via SMTP."""
     logger = logging.getLogger(__name__)
     logger.info("API HIT: send_emails_endpoint")
 
@@ -544,9 +545,22 @@ def send_emails_endpoint():
 
         # Extract data safely
         email_data = data.get('email_data', [])
-        teacher_email = g.current_user['user']  # Use logged-in teacher's email
+        # Use logged-in user's email as sender
+        teacher_email = g.current_user['user']
+        # Get Gmail app password from the request payload (entered by user in dialog)
+        gmail_app_password = data.get('gmail_app_password', '').strip()
 
-        logger.info(f"Teacher email (from login): {teacher_email}")
+        logger.info(f"📧 Teacher email (sender): {teacher_email}")
+        logger.info(f"📨 Total students to send to: {len(email_data)}")
+
+        # Validate Gmail credentials
+        if not gmail_app_password:
+            logger.error("❌ Gmail app password not provided")
+            return jsonify({
+                'success': False,
+                'error': 'Gmail app password is required. Please enter your 16-character app password.',
+                'results': []
+            }), 400
 
         # Handle attachment
         attachment_payload = None
@@ -567,43 +581,29 @@ def send_emails_endpoint():
         conn = get_db_connection()
         
         try:
-            # Use EmailSender with Brevo (auto-detected from environment variables)
-            logger.info(f"Initializing EmailSender for {teacher_email}")
-            email_sender = EmailSender(sender_email=teacher_email, sender_password=None, max_retries=3, timeout=30)
+            # Initialize EmailSender with teacher's Gmail credentials
+            logger.info(f"Initializing EmailSender with {teacher_email}")
+            email_sender = EmailSender(sender_email=teacher_email, sender_password=gmail_app_password, max_retries=3, timeout=30)
             
-            # Log which sender email will be used
-            from email_util import BREVO_FROM_EMAIL, USE_BREVO
-            if USE_BREVO:
-                logger.info(f"📧 Using Brevo API with sender: {BREVO_FROM_EMAIL}")
-                if BREVO_FROM_EMAIL == 'noreply@monitormail.com':
-                    logger.warning(f"⚠️  WARNING: Using default sender email - ensure it's verified in Brevo!")
-            
-            # Check if we have proper email configuration
-            if not email_sender.use_brevo and not os.environ.get('GMAIL_PASSWORD'):
-                logger.error("Email service not configured: Set BREVO_API_KEY for production or GMAIL_PASSWORD for development")
+            # Connect to Gmail SMTP
+            logger.info("Connecting to Gmail SMTP server...")
+            try:
+                email_sender.connect()
+                logger.info("✅ Gmail SMTP connection successful")
+            except Exception as e:
+                logger.error(f"❌ Failed to connect to Gmail: {e}")
                 return jsonify({
                     'success': False,
-                    'error': 'Email service not configured. Contact administrator.',
+                    'error': f'Email service connection failed: {str(e)[:100]}',
                     'results': []
                 }), 500
-            
-            # Connect only if not using Brevo API (Brevo doesn't need connection)
-            if not email_sender.use_brevo:
-                logger.info("Connecting to Gmail SMTP server...")
-                try:
-                    email_sender.connect()
-                    logger.info("✅ Gmail SMTP connection successful")
-                except Exception as e:
-                    logger.error(f"❌ Failed to connect to Gmail: {e}")
-                    return jsonify({
-                        'success': False,
-                        'error': f'Email service connection failed: {str(e)[:100]}',
-                        'results': []
-                    }), 500
 
-            # Send emails
+            # Send emails and track successful sends for summary
+            successful_sends = []  # Track students who receive emails for summary
+            
             for idx, student in enumerate(email_data, 1):
                 if not isinstance(student, dict) or 'reg_no' not in student:
+                    logger.error(f"Invalid student data format: {student}")
                     results.append({
                         'reg_no': 'Unknown',
                         'status': 'failed',
@@ -612,13 +612,24 @@ def send_emails_endpoint():
                     continue
 
                 try:
+                    reg_no = student.get('reg_no')
+                    logger.info(f"Processing student {idx}/{len(email_data)}: {reg_no}")
+                    
                     # Clean email addresses
-                    student_email = clean_email(student.get('student_email'))
-                    parent_email = clean_email(student.get('parent_email'))
+                    raw_student_email = student.get('student_email')
+                    raw_parent_email = student.get('parent_email')
+                    
+                    logger.debug(f"  Raw emails - Student: {raw_student_email}, Parent: {raw_parent_email}")
+                    
+                    student_email = clean_email(raw_student_email)
+                    parent_email = clean_email(raw_parent_email)
+                    
+                    logger.debug(f"  Cleaned emails - Student: {student_email}, Parent: {parent_email}")
 
                     if not student_email and not parent_email:
+                        logger.warning(f"  ❌ No valid recipient emails for {reg_no}")
                         results.append({
-                            'reg_no': student['reg_no'],
+                            'reg_no': reg_no,
                             'status': 'failed',
                             'reason': 'No valid recipient emails'
                         })
@@ -628,30 +639,37 @@ def send_emails_endpoint():
                     subject = student.get('subject', "Important: Attendance Notification")
                     body_html = student.get('email_body', '').replace('\n', '<br>')
 
-                    # Send email with teacher as CC
-                    # Build CC list: include parent email and teacher email
-                    cc_addresses = []
-                    if parent_email and parent_email != student_email:
-                        cc_addresses.append(parent_email)
-                    if teacher_email and teacher_email != student_email and teacher_email != parent_email:
-                        cc_addresses.append(teacher_email)
-                    
-                    cc_email = ', '.join(cc_addresses) if cc_addresses else None
+                    logger.info(f"  Subject: {subject}")
+                    logger.info(f"  Body length: {len(body_html)} characters")
+
+                    # Send email - teacher's email is the sender (will receive bounces)
+                    # No CC needed since teacher is the sender
+                    logger.info(f"  Sending to: {student_email or parent_email}")
                     
                     success, msg = email_sender.send_email(
                         to_email=student_email or parent_email,
                         subject=subject,
                         body_html=body_html,
-                        cc_email=cc_email,
+                        cc_email=None,
                         attachment_data=attachment_payload,
                         attachment_filename=attachment_filename
                     )
 
                     results.append({
-                        'reg_no': student['reg_no'],
+                        'reg_no': reg_no,
                         'status': 'success' if success else 'failed',
                         'reason': msg if not success else None
                     })
+                    
+                    if success:
+                        logger.info(f"  ✅ Email sent successfully: {msg}")
+                        # Track successful send for summary email
+                        successful_sends.append({
+                            'name': student.get('name', 'N/A'),
+                            'reg_no': reg_no
+                        })
+                    else:
+                        logger.error(f"  ❌ Email failed: {msg}")
 
                     # Log to database
                     if success:
@@ -667,19 +685,57 @@ def send_emails_endpoint():
                         conn.commit()
 
                 except Exception as e:
-                    logger.error(f"Error sending to {student.get('reg_no')}: {e}")
+                    logger.error(f"Error sending to {reg_no}: {type(e).__name__}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     conn.rollback()
                     results.append({
-                        'reg_no': student.get('reg_no', 'Unknown'),
+                        'reg_no': reg_no,
                         'status': 'failed',
                         'reason': str(e)[:100]
                     })
 
                 logger.info(f"Progress: {idx}/{len(email_data)}")
 
+            # Send summary email to teacher BEFORE closing connection
+            if successful_sends:
+                logger.info(f"📧 Sending summary email to teacher: {teacher_email} with {len(successful_sends)} student(s)")
+                
+                # Build summary email body
+                summary_body = "<html><body><h2>Email Delivery Summary</h2>"
+                summary_body += f"<p>Dear Teacher,</p>"
+                summary_body += f"<p>Attendance notification emails have been successfully sent to the following students:</p>"
+                summary_body += "<table border='1' cellpadding='10' style='border-collapse: collapse; font-family: Arial;'>"
+                summary_body += "<tr style='background-color: #f0f0f0;'><th>Student Name</th><th>Registration Number</th></tr>"
+                
+                for send in successful_sends:
+                    summary_body += f"<tr><td>{send['name']}</td><td>{send['reg_no']}</td></tr>"
+                
+                summary_body += "</table>"
+                summary_body += f"<p><strong>Total: {len(successful_sends)} email(s) sent</strong></p>"
+                summary_body += "<p>This is an automated notification. Please do not reply to this email.</p>"
+                summary_body += "</body></html>"
+                
+                # Send summary to teacher
+                summary_success, summary_msg = email_sender.send_email(
+                    to_email=teacher_email,
+                    subject=f"Email Delivery Summary - {len(successful_sends)} student(s) notified",
+                    body_html=summary_body,
+                    cc_email=None,
+                    attachment_data=None,
+                    attachment_filename=None
+                )
+                
+                if summary_success:
+                    logger.info(f"  ✅ Summary email sent to teacher: {summary_msg}")
+                else:
+                    logger.error(f"  ❌ Failed to send summary email: {summary_msg}")
+            else:
+                logger.warning("⚠️  No successful emails sent, skipping summary email")
+
             # Cleanup
             email_sender.logout()
-            logger.info("✅ All emails processed successfully")
+            logger.info("✅ All emails processed successfully and summary sent")
 
         except smtplib.SMTPAuthenticationError as e:
             logger.error(f"Brevo authentication failed: {e}")
@@ -773,30 +829,29 @@ def alert_all_students():
 
             logger.info(f"Found {len(all_students)} students to send alert to")
 
-            # Use EmailSender with Brevo (auto-detected from environment variables)
-            logger.info(f"Initializing EmailSender for {teacher_email}")
-            email_sender = EmailSender(sender_email=teacher_email, sender_password=None, max_retries=3, timeout=30)
-            
-            # Check if we have proper email configuration
-            if not email_sender.use_brevo and not os.environ.get('GMAIL_PASSWORD'):
-                logger.error("Email service not configured: Set BREVO_API_KEY for production or GMAIL_PASSWORD for development")
+            # Get Gmail app password from request (entered by user in dialog)
+            gmail_app_password = data.get('gmail_app_password', '').strip()
+            if not gmail_app_password:
+                logger.error("❌ Gmail app password not provided")
                 return jsonify({
                     'success': False,
-                    'reason': 'Email service not configured. Contact administrator.'
-                }), 500
+                    'reason': 'Gmail app password is required. Please enter your 16-character app password.'
+                }), 400
             
-            # Connect only if not using Brevo API (Brevo doesn't need connection)
-            if not email_sender.use_brevo:
-                logger.info("Connecting to Gmail SMTP server...")
-                try:
-                    email_sender.connect()
-                    logger.info("✅ Gmail SMTP connection successful")
-                except Exception as e:
-                    logger.error(f"❌ Failed to connect to Gmail: {e}")
-                    return jsonify({
-                        'success': False,
-                        'reason': f'Email service connection failed: {str(e)[:100]}'
-                    }), 500
+            logger.info(f"Initializing EmailSender with {teacher_email}")
+            email_sender = EmailSender(sender_email=teacher_email, sender_password=gmail_app_password, max_retries=3, timeout=30)
+            
+            # Connect to Gmail SMTP
+            logger.info("Connecting to Gmail SMTP server...")
+            try:
+                email_sender.connect()
+                logger.info("✅ Gmail SMTP connection successful")
+            except Exception as e:
+                logger.error(f"❌ Failed to connect to Gmail: {e}")
+                return jsonify({
+                    'success': False,
+                    'reason': f'Email service connection failed: {str(e)[:100]}'
+                }), 500
 
             results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
             
@@ -819,14 +874,10 @@ def alert_all_students():
                     body_personalized = email_body.replace('[Student Name]', name or 'Student')
                     body_html = body_personalized.replace('\n', '<br>')
 
-                    # Build CC list: include parent email and teacher email
-                    cc_addresses = []
+                    # Send email - teacher is the sender, parent gets CC if different from student email
+                    cc_email = None
                     if p_email and p_email != s_email:
-                        cc_addresses.append(p_email)
-                    if teacher_email and teacher_email != s_email and teacher_email != p_email:
-                        cc_addresses.append(teacher_email)
-                    
-                    cc_email = ', '.join(cc_addresses) if cc_addresses else None
+                        cc_email = p_email
 
                     # Send email
                     success, msg = email_sender.send_email(
