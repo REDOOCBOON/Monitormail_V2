@@ -643,14 +643,20 @@ def send_emails_endpoint():
                     logger.info(f"  Body length: {len(body_html)} characters")
 
                     # Send email - teacher's email is the sender (will receive bounces)
-                    # No CC needed since teacher is the sender
+                    # CC parent if available and different from student email
+                    cc_email = None
+                    if parent_email and parent_email != student_email:
+                        cc_email = parent_email
+                    
                     logger.info(f"  Sending to: {student_email or parent_email}")
+                    if cc_email:
+                        logger.info(f"  CC: {cc_email}")
                     
                     success, msg = email_sender.send_email(
                         to_email=student_email or parent_email,
                         subject=subject,
                         body_html=body_html,
-                        cc_email=None,
+                        cc_email=cc_email,
                         attachment_data=attachment_payload,
                         attachment_filename=attachment_filename
                     )
