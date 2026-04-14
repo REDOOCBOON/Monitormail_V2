@@ -31,6 +31,7 @@ import imaplib
 import email
 from email.header import decode_header
 from email_util import EmailSender
+from brevo_email_sender import BrevoEmailSender, is_brevo_configured
 import logging
 
 # --- Logging Configuration ---
@@ -518,7 +519,7 @@ def fetch_details():
 @app.route('/api/send-emails', methods=['POST'])
 @token_required
 def send_emails_endpoint():
-    """Send emails to individual students using their Gmail account via SMTP."""
+    """Send emails to individual students using selected email service (Gmail or Brevo)."""
     logger = logging.getLogger(__name__)
     logger.info("API HIT: send_emails_endpoint")
 
@@ -547,18 +548,37 @@ def send_emails_endpoint():
         email_data = data.get('email_data', [])
         # Use logged-in user's email as sender
         teacher_email = g.current_user['user']
+        # Get email service preference (default: 'google')
+        email_service = data.get('email_service', 'google').strip().lower()
         # Get Gmail app password from the request payload (entered by user in dialog)
         gmail_app_password = data.get('gmail_app_password', '').strip()
 
         logger.info(f"📧 Teacher email (sender): {teacher_email}")
+        logger.info(f"📨 Email service: {email_service}")
         logger.info(f"📨 Total students to send to: {len(email_data)}")
 
-        # Validate Gmail credentials
-        if not gmail_app_password:
-            logger.error("❌ Gmail app password not provided")
+        # Validate based on selected service
+        if email_service == 'google':
+            if not gmail_app_password:
+                logger.error("❌ Gmail app password not provided")
+                return jsonify({
+                    'success': False,
+                    'error': 'Gmail app password is required. Please enter your 16-character app password.',
+                    'results': []
+                }), 400
+        elif email_service == 'brevo':
+            if not is_brevo_configured():
+                logger.error("❌ Brevo API not configured")
+                return jsonify({
+                    'success': False,
+                    'error': 'Brevo API is not configured. Contact administrator.',
+                    'results': []
+                }), 500
+        else:
+            logger.error(f"❌ Unknown email service: {email_service}")
             return jsonify({
                 'success': False,
-                'error': 'Gmail app password is required. Please enter your 16-character app password.',
+                'error': f'Unknown email service: {email_service}',
                 'results': []
             }), 400
 
@@ -581,22 +601,26 @@ def send_emails_endpoint():
         conn = get_db_connection()
         
         try:
-            # Initialize EmailSender with teacher's Gmail credentials
-            logger.info(f"Initializing EmailSender with {teacher_email}")
-            email_sender = EmailSender(sender_email=teacher_email, sender_password=gmail_app_password, max_retries=3, timeout=30)
-            
-            # Connect to Gmail SMTP
-            logger.info("Connecting to Gmail SMTP server...")
-            try:
-                email_sender.connect()
-                logger.info("✅ Gmail SMTP connection successful")
-            except Exception as e:
-                logger.error(f"❌ Failed to connect to Gmail: {e}")
-                return jsonify({
-                    'success': False,
-                    'error': f'Email service connection failed: {str(e)[:100]}',
-                    'results': []
-                }), 500
+            # Initialize email sender based on selected service
+            if email_service == 'google':
+                logger.info(f"Initializing Gmail EmailSender with {teacher_email}")
+                email_sender = EmailSender(sender_email=teacher_email, sender_password=gmail_app_password, max_retries=3, timeout=30)
+                
+                # Connect to Gmail SMTP
+                logger.info("Connecting to Gmail SMTP server...")
+                try:
+                    email_sender.connect()
+                    logger.info("✅ Gmail SMTP connection successful")
+                except Exception as e:
+                    logger.error(f"❌ Failed to connect to Gmail: {e}")
+                    return jsonify({
+                        'success': False,
+                        'error': f'Email service connection failed: {str(e)[:100]}',
+                        'results': []
+                    }), 500
+            else:  # brevo
+                logger.info("Initializing Brevo EmailSender")
+                email_sender = BrevoEmailSender()
 
             # Send emails and track successful sends for summary
             successful_sends = []  # Track students who receive emails for summary
@@ -780,11 +804,12 @@ def send_emails_endpoint():
 @app.route('/api/alert-all', methods=['POST'])
 @token_required
 def alert_all_students():
-    """Send mass alert to all students using Brevo SMTP relay."""
+    """Send mass alert to all students using selected email service (Gmail or Brevo)."""
     logger = logging.getLogger(__name__)
     logger.info("API HIT: alert_all_students")
 
     conn = None
+    results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
     try:
         alert_payload_str = request.form.get('alert_payload')
         if not alert_payload_str:
@@ -802,8 +827,35 @@ def alert_all_students():
         subject = data.get('subject', 'Important Notification')
         email_body = data.get('email_body', '')
         teacher_email = g.current_user['user']  # Use logged-in teacher's email
+        # Get email service preference (default: 'google')
+        email_service = data.get('email_service', 'google').strip().lower()
+        # Get Gmail app password from request (entered by user in dialog)
+        gmail_app_password = data.get('gmail_app_password', '').strip()
 
         logger.info(f"Teacher email (from login): {teacher_email}")
+        logger.info(f"Email service: {email_service}")
+
+        # Validate based on selected service
+        if email_service == 'google':
+            if not gmail_app_password:
+                logger.error("❌ Gmail app password not provided")
+                return jsonify({
+                    'success': False,
+                    'reason': 'Gmail app password is required. Please enter your 16-character app password.'
+                }), 400
+        elif email_service == 'brevo':
+            if not is_brevo_configured():
+                logger.error("❌ Brevo API not configured")
+                return jsonify({
+                    'success': False,
+                    'reason': 'Brevo API is not configured. Contact administrator.'
+                }), 500
+        else:
+            logger.error(f"❌ Unknown email service: {email_service}")
+            return jsonify({
+                'success': False,
+                'reason': f'Unknown email service: {email_service}'
+            }), 400
 
         # Handle attachment
         attachment_payload = None
@@ -835,29 +887,25 @@ def alert_all_students():
 
             logger.info(f"Found {len(all_students)} students to send alert to")
 
-            # Get Gmail app password from request (entered by user in dialog)
-            gmail_app_password = data.get('gmail_app_password', '').strip()
-            if not gmail_app_password:
-                logger.error("❌ Gmail app password not provided")
-                return jsonify({
-                    'success': False,
-                    'reason': 'Gmail app password is required. Please enter your 16-character app password.'
-                }), 400
-            
-            logger.info(f"Initializing EmailSender with {teacher_email}")
-            email_sender = EmailSender(sender_email=teacher_email, sender_password=gmail_app_password, max_retries=3, timeout=30)
-            
-            # Connect to Gmail SMTP
-            logger.info("Connecting to Gmail SMTP server...")
-            try:
-                email_sender.connect()
-                logger.info("✅ Gmail SMTP connection successful")
-            except Exception as e:
-                logger.error(f"❌ Failed to connect to Gmail: {e}")
-                return jsonify({
-                    'success': False,
-                    'reason': f'Email service connection failed: {str(e)[:100]}'
-                }), 500
+            # Initialize email sender based on selected service
+            if email_service == 'google':
+                logger.info(f"Initializing Gmail EmailSender with {teacher_email}")
+                email_sender = EmailSender(sender_email=teacher_email, sender_password=gmail_app_password, max_retries=3, timeout=30)
+                
+                # Connect to Gmail SMTP
+                logger.info("Connecting to Gmail SMTP server...")
+                try:
+                    email_sender.connect()
+                    logger.info("✅ Gmail SMTP connection successful")
+                except Exception as e:
+                    logger.error(f"❌ Failed to connect to Gmail: {e}")
+                    return jsonify({
+                        'success': False,
+                        'reason': f'Email service connection failed: {str(e)[:100]}'
+                    }), 500
+            else:  # brevo
+                logger.info("Initializing Brevo EmailSender")
+                email_sender = BrevoEmailSender()
 
             results = {'success_count': 0, 'fail_count': 0, 'failed_regs': []}
             
@@ -933,12 +981,12 @@ def alert_all_students():
             return jsonify({'success': True, 'results': results})
 
         except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"Brevo authentication failed: {e}")
+            logger.error(f"Email authentication failed: {e}")
             if conn:
                 conn.close()
             return jsonify({
                 'success': False,
-                'reason': 'Email service authentication failed. Check Brevo configuration.',
+                'reason': 'Email service authentication failed. Check your credentials.',
                 'results': results
             }), 401
         except (socket.timeout, socket.gaierror, ConnectionError) as e:
@@ -951,7 +999,7 @@ def alert_all_students():
                 'results': results
             }), 500
         except Exception as e:
-            logger.error(f"SMTP error: {e}")
+            logger.error(f"Email service error: {e}")
             if conn:
                 conn.close()
             return jsonify({

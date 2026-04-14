@@ -155,6 +155,7 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
     const [isSendingAll, setIsSendingAll] = useState(false);
     const [progress, setProgress] = useState(0);
     const [gmailAppPassword, setGmailAppPassword] = useState('');
+    const [emailService, setEmailService] = useState('google'); // 'google' or 'brevo'
 
     const generateEmailBody = (templateBody, student) => {
         const subjects = student?.subjects || []; 
@@ -219,7 +220,7 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
     const handleAttachmentChange = (e) => setAttachment(e.target.files[0]);
 
     const handleSendAll = async () => {
-        if (!gmailAppPassword || gmailAppPassword.trim() === '') {
+        if (emailService === 'google' && (!gmailAppPassword || gmailAppPassword.trim() === '')) {
             setSnackbar({ open: true, message: 'Please enter your Gmail app password', severity: 'error' });
             return;
         }
@@ -229,7 +230,8 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
         const payload = { 
             email_data: validStudents.map(student => 
                 ({ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" })),
-            gmail_app_password: gmailAppPassword
+            ...(emailService === 'google' && { gmail_app_password: gmailAppPassword }),
+            email_service: emailService
         };
         const timer = setInterval(() => { setProgress(p => p >= 90 ? 90 : p + 10); }, 300);
         try {
@@ -248,14 +250,15 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
     const handleSendSingle = async (student) => {
       
         if(!student || !student.reg_no) return;
-        if (!gmailAppPassword || gmailAppPassword.trim() === '') {
+        if (emailService === 'google' && (!gmailAppPassword || gmailAppPassword.trim() === '')) {
             setSnackbar({ open: true, message: 'Please enter your Gmail app password', severity: 'error' });
             return;
         }
         setSingleSendLoading(student.reg_no);
         const payload = { 
             email_data: [{ ...student, email_body: emailBodies[student.reg_no], subject: "Important: Attendance Notification" }],
-            gmail_app_password: gmailAppPassword
+            ...(emailService === 'google' && { gmail_app_password: gmailAppPassword }),
+            email_service: emailService
         };
         await onSendSingle(payload, attachment, student.reg_no);
         setSingleSendLoading(null);
@@ -285,17 +288,23 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
        
                     <Grid container spacing={2} sx={{ mb: 2 }}>
                         <Grid item xs={12} sm={6}>
-                            <Typography variant="body2" color="primary" sx={{ mb: 1, fontWeight: 600 }}>
-                                📧 Emails will be sent via your Gmail account
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                                Sending as: <strong>{user?.email || 'Your Email'}</strong>
-                            </Typography>
+                            <FormControl fullWidth>
+                                <InputLabel>Email Service</InputLabel>
+                                <Select 
+                                    label="Email Service" 
+                                    value={emailService} 
+                                    onChange={e => setEmailService(e.target.value)}
+                                    disabled={isSendingAll}
+                                >
+                                    <MenuItem value="google">🔐 Google App Password</MenuItem>
+                                    <MenuItem value="brevo">🚀 Brevo API</MenuItem>
+                                </Select>
+                            </FormControl>
                         </Grid>
                         <Grid item xs={12} sm={6}>
                             <FormControl fullWidth>
                                 <InputLabel>Select Template</InputLabel>
-                                <Select label="Select Template" onChange={e => handleTemplateChange(e.target.value)} defaultValue="">
+                                <Select label="Select Template" onChange={e => handleTemplateChange(e.target.value)} defaultValue="" disabled={isSendingAll}>
     
                                     {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
                                 </Select>
@@ -305,19 +314,29 @@ const EmailModal = ({ open, onClose, data, onSendAll, onSendSingle, loading, tem
                     </Grid>
 
                     <Grid container spacing={2} sx={{ mb: 2 }}>
-                        <Grid item xs={12}>
-                            <TextField 
-                                fullWidth 
-                                label="Gmail App Password" 
-                                variant="outlined" 
-                                type="password"
-                                value={gmailAppPassword} 
-                                onChange={e => setGmailAppPassword(e.target.value)}
-                                disabled={isSendingAll}
-                                placeholder="Enter your 16-character Gmail app password"
-                                helperText="Get this from: Google Account → Security → App Passwords"
-                            />
-                        </Grid>
+                        {emailService === 'google' && (
+                            <Grid item xs={12}>
+                                <TextField 
+                                    fullWidth 
+                                    label="Gmail App Password" 
+                                    variant="outlined" 
+                                    type="password"
+                                    value={gmailAppPassword} 
+                                    onChange={e => setGmailAppPassword(e.target.value)}
+                                    disabled={isSendingAll}
+                                    placeholder="Enter your 16-character Gmail app password"
+                                    helperText="Get this from: Google Account → Security → App Passwords"
+                                />
+                            </Grid>
+                        )}
+                        {emailService === 'brevo' && (
+                            <Grid item xs={12}>
+                                <Box sx={{ p: 2, backgroundColor: 'rgba(76, 175, 80, 0.1)', borderRadius: 1, border: '1px solid rgba(76, 175, 80, 0.3)' }}>
+                                    <Typography variant="body2" color="success.main">✅ Brevo API Ready</Typography>
+                                    <Typography variant="caption" color="text.secondary">Emails will be sent via Brevo service</Typography>
+                                </Box>
+                            </Grid>
+                        )}
                     </Grid>
               
                     <TextField fullWidth label="Search by Registration No." variant="outlined" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} sx={{ mb: 2 }} disabled={isSendingAll} />
@@ -464,6 +483,7 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates, user }) => 
     const [body, setBody] = useState('');
     const [attachment, setAttachment] = useState(null);
     const [gmailAppPassword, setGmailAppPassword] = useState('');
+    const [emailService, setEmailService] = useState('google'); // 'google' or 'brevo'
 
     useEffect(() => {
         if (open) {
@@ -485,14 +505,15 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates, user }) => 
     const handleAttachmentChange = (e) => setAttachment(e.target.files[0]);
 
     const handleSend = () => {
-        if (!gmailAppPassword || gmailAppPassword.trim() === '') {
+        if (emailService === 'google' && (!gmailAppPassword || gmailAppPassword.trim() === '')) {
             alert('Please enter your Gmail app password');
             return;
         }
         const payload = {
             subject: subject,
             email_body: body,
-            gmail_app_password: gmailAppPassword
+            ...(emailService === 'google' && { gmail_app_password: gmailAppPassword }),
+            email_service: emailService
         };
         onSend(payload, attachment);
     };
@@ -508,41 +529,67 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates, user }) => 
                             onClick={onClose}><CloseIcon /></IconButton>
                     </Box>
                     <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6}>
+                            <FormControl fullWidth>
+                                <InputLabel>Email Service</InputLabel>
+                                <Select 
+                                    label="Email Service" 
+                                    value={emailService} 
+                                    onChange={e => setEmailService(e.target.value)}
+                                    disabled={loading}
+                                >
+                                    <MenuItem value="google">🔐 Google App Password</MenuItem>
+                                    <MenuItem value="brevo">🚀 Brevo API</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                            <FormControl fullWidth>
+                                <InputLabel>Select Template</InputLabel>
+                                <Select label="Select Template" onChange={e => handleTemplateChange(e.target.value)} defaultValue="" disabled={loading}>
+                                    {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+                                </Select>
+                            </FormControl>
+                        </Grid>
                         <Grid item xs={12}>
-                            <Typography variant="body2" color="primary" sx={{ mb: 1, fontWeight: 600 }}>
-                                📧 Emails will be sent via your Gmail account
-                            </Typography>
+                            {emailService === 'google' && (
+                                <TextField 
+                                    fullWidth 
+                                    label="Gmail App Password" 
+                                    variant="outlined" 
+                                    type="password"
+                                    value={gmailAppPassword} 
+                                    onChange={e => setGmailAppPassword(e.target.value)}
+                                    disabled={loading}
+                                    placeholder="Enter your 16-character Gmail app password"
+                                    helperText="Get this from: Google Account → Security → App Passwords"
+                                />
+                            )}
+                            {emailService === 'brevo' && (
+                                <Box sx={{ p: 2, backgroundColor: 'rgba(76, 175, 80, 0.1)', borderRadius: 1, border: '1px solid rgba(76, 175, 80, 0.3)' }}>
+                                    <Typography variant="body2" color="success.main">✅ Brevo API Ready</Typography>
+                                    <Typography variant="caption" color="text.secondary">Campaign will be sent via Brevo service</Typography>
+                                </Box>
+                            )}
+                        </Grid>
+                        <Grid item xs={12}>
                             <Typography variant="caption" color="text.secondary">
                                 Sending as: <strong>{user?.email || 'Your Email'}</strong>
                             </Typography>
                         </Grid>
-                        <Grid item xs={12} sm={6}><TextField fullWidth label="Subject" 
-                            value={subject} onChange={e => setSubject(e.target.value)} disabled={loading} /></Grid>
+                        <Grid item xs={12} sm={6}>
+                            <TextField fullWidth label="Subject" 
+                                value={subject} onChange={e => setSubject(e.target.value)} disabled={loading} />
+                        </Grid>
                         <Grid item xs={12} sm={6}>
                             <FormControl fullWidth>
-                
                                 <InputLabel>Select Template</InputLabel>
                                 <Select label="Select Template" onChange={e => handleTemplateChange(e.target.value)} defaultValue="" disabled={loading}>
-                     
                                     {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
                                 </Select>
-                          
                             </FormControl>
                         </Grid>
                         <Grid item xs={12}>
-                            <TextField 
-                                fullWidth 
-                                label="Gmail App Password" 
-                                type="password"
-                                value={gmailAppPassword}
-                                onChange={e => setGmailAppPassword(e.target.value)}
-                                disabled={loading}
-                                placeholder="Enter your 16-character Gmail app password"
-                                helperText="Get this from: Google Account → Security → App Passwords"
-                            />
-                        </Grid>
-                        <Grid item xs={12}>
-                         
                             <TextField fullWidth multiline rows={10} label="Email Body" value={body} onChange={e => setBody(e.target.value)} className="email-body-textarea" helperText="Use [Student Name] as a placeholder for personalization." disabled={loading} />
                         </Grid>
                     </Grid>
@@ -556,11 +603,9 @@ const MassAlertModal = ({ open, onClose, onSend, loading, templates, user }) => 
                 
                         {attachment && <Typography variant="body2" noWrap sx={{maxWidth: '200px'}}>{attachment.name}</Typography>}
                         <Box flexGrow={1} />
-                        <Button onClick={handleSend} variant="contained" disabled={loading || !subject || !body || !gmailAppPassword}>
-  
+                        <Button onClick={handleSend} variant="contained" disabled={loading || !subject || !body || (emailService === 'google' && !gmailAppPassword)}>
                             {loading ? <CircularProgress size={24} /> : 'Send to All Students'}
                         </Button>
-                  
                     </Box>
                 </Box>
             </Fade>
